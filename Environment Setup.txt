@@ -1,3 +1,13 @@
+### Files to download ###
+Download SCANFI_att_biomass_SW_2020_v1.2.tif from
+https://ftp.maps.canada.ca/pub/nrcan_rncan/Forests_Foret/SCANFI/v1/
+Rename to SCANFI_att_biomass_SW_2020.tif
+(Couldn't push since it is over 5GB)
+
+Download Firegrowth_pts_v1_1_2024 and put in the same way Firegrowth_pts_v1_1_2020
+https://osf.io/f48ry/overview
+(Couldn't push since it is over 5GB)
+
 ### Python's virtual environement ###
 
 py -3.12 -m venv wildfire-venv
