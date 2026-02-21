@@ -1,0 +1,31 @@
+### Python's virtual environement ###
+
+py -3.12 -m venv wildfire-venv
+wildfire-venv\Scripts\activate
+
+pip install notebook ipykernel
+pip install scipy
+pip install matplotlib
+pip install scikit-learn
+pip install timezonefinder
+pip install pytz
+pip install cfgrib
+pip install xdem
+pip install rasterio
+pip install pyproj
+pip install tqdm
+pip install h5py
+pip install cdsapi
+pip install dask
+
+jupyter notebook
+
+
+### OSGEO GDAL setup ###
+
+Link to download GDAL: https://trac.osgeo.org/osgeo4w/
+https://gdal.org/en/stable/download.html
+
+For help with the setup steps: https://www.youtube.com/watch?v=oCeffhtywco
+
+GDAL documentation: https://gdal.org/en/stable/programs/gdaldem.html
