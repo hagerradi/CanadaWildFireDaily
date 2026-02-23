@@ -1,38 +1,37 @@
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
-# Fire growth points/Firegrowth_pts_v1_1_2020/
-Fire growth points/Firegrowth_pts_v1_1_2024/
-SCANFI/2020/SCANFI_att_biomass_SW_2020.tif
-# SCANFI/2020/SCANFI_att_closure_SW_2020.tif
-# SCANFI/2020/SCANFI_sps_prcB_SW_2020.tif
-# SCANFI/2020/SCANFI_sps_prcC_other_SW_2020.tif
-# DEM_API/
-# ERA5/
-# Fuel Disturbance/
-
-# Requests
-DEM_API/Canada DEM/Requests
-
-# GDAL DEM Folders
-DEM_API/Canada DEM/DEM files GDAL/Slope/
-DEM_API/Canada DEM/DEM files GDAL/Elevation/
-DEM_API/Canada DEM/DEM files GDAL/Aspect/
-DEM_API/Canada DEM/DEM files GDAL/Elevation_average/
-
-# XDEM DEM Folders
-DEM_API/Canada DEM/DEM files XDEM/Slope/
-DEM_API/Canada DEM/DEM files XDEM/Elevation/
-DEM_API/Canada DEM/DEM files XDEM/Aspect/
-
-# Fire data
+Fire growth points/
+SCANFI/
+DEM_API/
+ERA5/
+Fuel Disturbance/
 Fire Subsets/
 
-# Disturbance product
-Fuel disturbance/canlad_annual_2020_v1_90m.tif
+# Fire growth points/Firegrowth_pts_v1_1_2020/
 
-# SCANFI products
-SCANFI/2020/SCANFI_att_biomass_SW_2020_90m.tif
-SCANFI/2020/SCANFI_att_closure_SW_2020_90m.tif
-SCANFI/2020/SCANFI_sps_prcB_SW_2020_90m.tif
-SCANFI/2020/SCANFI_sps_prcC_other_SW_2020_90m.tif
+# # Requests
+# DEM_API/Canada DEM/Requests
+
+# # GDAL DEM Folders
+# DEM_API/Canada DEM/DEM files GDAL/Slope/
+# DEM_API/Canada DEM/DEM files GDAL/Elevation/
+# DEM_API/Canada DEM/DEM files GDAL/Aspect/
+# DEM_API/Canada DEM/DEM files GDAL/Elevation_average/
+
+# # XDEM DEM Folders
+# DEM_API/Canada DEM/DEM files XDEM/Slope/
+# DEM_API/Canada DEM/DEM files XDEM/Elevation/
+# DEM_API/Canada DEM/DEM files XDEM/Aspect/
+
+# # Fire data
+# Fire Subsets/
+
+# # Disturbance product
+# Fuel disturbance/canlad_annual_2020_v1_90m.tif
+
+# # SCANFI products
+# SCANFI/2020/SCANFI_att_biomass_SW_2020_90m.tif
+# SCANFI/2020/SCANFI_att_closure_SW_2020_90m.tif
+# SCANFI/2020/SCANFI_sps_prcB_SW_2020_90m.tif
+# SCANFI/2020/SCANFI_sps_prcC_other_SW_2020_90m.tif
