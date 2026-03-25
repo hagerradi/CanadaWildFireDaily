@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
@@ -13,6 +14,9 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from src.config import TrainingConfig
+
+if TYPE_CHECKING:
+    from src.logger import CometLogger
 
 
 class Trainer:
@@ -23,6 +27,9 @@ class Trainer:
         optimizer: Optimizer instance.
         loss_fn: Loss function (criterion).
         config: Training-specific configuration.
+        logger: Optional :class:`~src.logger.CometLogger` instance.  When
+            provided, hyper-parameters are logged at construction time and
+            train/val losses are logged after every epoch.
     """
 
     def __init__(
@@ -31,13 +38,26 @@ class Trainer:
         optimizer: Optimizer,
         loss_fn: nn.Module,
         config: TrainingConfig,
+        logger: CometLogger | None = None,
     ) -> None:
         self.model = model
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.config = config
+        self.logger = logger
         self.device = self._resolve_device(config.device)
         self.model.to(self.device)
+
+        if self.logger is not None:
+            self.logger.log_params(
+                {
+                    "batch_size": config.batch_size,
+                    "num_epochs": config.num_epochs,
+                    "learning_rate": config.learning_rate,
+                    "weight_decay": config.weight_decay,
+                    "device": str(self.device),
+                }
+            )
 
     # ------------------------------------------------------------------
     # Public interface
@@ -57,6 +77,13 @@ class Trainer:
             train_loss = self.train_epoch(train_loader, epoch)
             val_loss = self.validate(val_loader)
             print(f"Epoch [{epoch}/{self.config.num_epochs}]  train_loss={train_loss:.4f}  val_loss={val_loss:.4f}")
+
+            if self.logger is not None:
+                self.logger.log_metrics(
+                    {"train_loss": train_loss, "val_loss": val_loss},
+                    epoch=epoch,
+                )
+
             self.save_checkpoint(checkpoint_dir / f"checkpoint_epoch_{epoch:03d}.pt", epoch)
 
     def train_epoch(self, loader: DataLoader, epoch: int) -> float:

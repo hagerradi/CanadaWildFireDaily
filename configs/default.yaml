@@ -26,3 +26,10 @@ training:
   device: "auto"
   checkpoint_dir: "checkpoints"
   log_interval: 10
+
+comet:
+  enabled: false
+  project_name: "mila-wildfires"
+  workspace: ""
+  experiment_name: "default-run"
+  experiment_tags: []

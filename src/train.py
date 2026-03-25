@@ -13,6 +13,7 @@ import torch
 
 from src.config import Config
 from src.dataloader import get_dataloaders
+from src.logger import CometLogger
 from src.models.unet import UNet
 from src.trainer import Trainer
 from src.utils import seed_everything
@@ -48,8 +49,19 @@ def train(config: Config) -> None:
     )
     loss_fn = torch.nn.MSELoss()
 
+    # Optional Comet logger
+    logger: CometLogger | None = None
+    if config.comet.enabled:
+        cc = config.comet
+        logger = CometLogger(
+            project_name=cc.project_name,
+            workspace=cc.workspace,
+            experiment_name=cc.experiment_name,
+            experiment_tags=cc.experiment_tags or None,
+        )
+
     # Trainer
-    trainer = Trainer(model=model, optimizer=optimizer, loss_fn=loss_fn, config=config.training)
+    trainer = Trainer(model=model, optimizer=optimizer, loss_fn=loss_fn, config=config.training, logger=logger)
 
     print(f"Training on device: {trainer.device}")
     print(f"Train batches: {len(train_loader)} | Val batches: {len(val_loader)}")

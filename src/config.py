@@ -42,11 +42,21 @@ class TrainingConfig:
 
 
 @dataclass
+class CometConfig:
+    enabled: bool = False
+    project_name: str = "mila-wildfires"
+    workspace: str = ""
+    experiment_name: str = "default-run"
+    experiment_tags: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     seed: int = 42
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    comet: CometConfig = field(default_factory=CometConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Config:
@@ -65,4 +75,5 @@ class Config:
         dataset_cfg = DatasetConfig(**raw.get("dataset", {}))
         model_cfg = ModelConfig(**raw.get("model", {}))
         training_cfg = TrainingConfig(**raw.get("training", {}))
-        return cls(seed=seed, dataset=dataset_cfg, model=model_cfg, training=training_cfg)
+        comet_cfg = CometConfig(**raw.get("comet", {}))
+        return cls(seed=seed, dataset=dataset_cfg, model=model_cfg, training=training_cfg, comet=comet_cfg)
