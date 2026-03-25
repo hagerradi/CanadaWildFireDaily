@@ -65,7 +65,7 @@ def get_dataloaders(config: Config) -> tuple[DataLoader, DataLoader, DataLoader]
         width=dc.width,
         channels=dc.channels,
         num_classes=dc.num_classes,
-        seed=tc.seed,
+        seed=config.seed,
     )
 
     n_total = len(dataset)
@@ -73,7 +73,7 @@ def get_dataloaders(config: Config) -> tuple[DataLoader, DataLoader, DataLoader]
     n_val = int(n_total * tc.val_split)
     n_test = n_total - n_train - n_val
 
-    generator = torch.Generator().manual_seed(tc.seed)
+    generator = torch.Generator().manual_seed(config.seed)
     train_set, val_set, test_set = random_split(dataset, [n_train, n_val, n_test], generator=generator)
 
     train_loader = DataLoader(train_set, batch_size=tc.batch_size, shuffle=True, num_workers=tc.num_workers)

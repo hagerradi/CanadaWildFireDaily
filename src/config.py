@@ -36,7 +36,6 @@ class TrainingConfig:
     val_split: float = 0.1
     test_split: float = 0.1
     num_workers: int = 4
-    seed: int = 42
     device: str = "auto"
     checkpoint_dir: str = "checkpoints"
     log_interval: int = 10
@@ -44,6 +43,7 @@ class TrainingConfig:
 
 @dataclass
 class Config:
+    seed: int = 42
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
@@ -61,7 +61,8 @@ class Config:
         with open(path, "r") as f:
             raw = yaml.safe_load(f) or {}
 
+        seed = raw.get("seed", 42)
         dataset_cfg = DatasetConfig(**raw.get("dataset", {}))
         model_cfg = ModelConfig(**raw.get("model", {}))
         training_cfg = TrainingConfig(**raw.get("training", {}))
-        return cls(dataset=dataset_cfg, model=model_cfg, training=training_cfg)
+        return cls(seed=seed, dataset=dataset_cfg, model=model_cfg, training=training_cfg)

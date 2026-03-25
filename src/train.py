@@ -8,7 +8,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import random
 
 import torch
 
@@ -16,6 +15,7 @@ from src.config import Config
 from src.dataloader import get_dataloaders
 from src.models.unet import UNet
 from src.trainer import Trainer
+from src.utils import seed_everything
 
 
 def train(config: Config) -> None:
@@ -24,10 +24,8 @@ def train(config: Config) -> None:
     Args:
         config: Global configuration object.
     """
-    # Reproducibility
-    seed = config.training.seed
-    random.seed(seed)
-    torch.manual_seed(seed)
+    # Fix all random seeds (CPU, CUDA, CuDNN, Python)
+    seed_everything(config.seed)
 
     # Data
     train_loader, val_loader, _ = get_dataloaders(config)

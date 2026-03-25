@@ -1,3 +1,5 @@
+seed: 42
+
 dataset:
   height: 256
   width: 256
@@ -21,7 +23,6 @@ training:
   val_split: 0.1
   test_split: 0.1
   num_workers: 4
-  seed: 42
   device: "auto"
   checkpoint_dir: "checkpoints"
   log_interval: 10
