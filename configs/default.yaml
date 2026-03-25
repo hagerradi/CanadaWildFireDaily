@@ -1,0 +1,35 @@
+seed: 42
+
+dataset:
+  height: 256
+  width: 256
+  channels: 3
+  num_samples: 1000
+  num_classes: 1
+
+model:
+  input_channels: 3
+  num_classes: 1
+  hidden_features: [64, 128, 256, 512]
+  use_skip_connections: true
+  use_activation_after_upsampling: false
+
+training:
+  batch_size: 8
+  num_epochs: 10
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 4
+  device: "auto"
+  checkpoint_dir: "checkpoints"
+  log_interval: 10
+
+comet:
+  enabled: false
+  project_name: "mila-wildfires"
+  workspace: ""
+  experiment_name: "default-run"
+  experiment_tags: []
