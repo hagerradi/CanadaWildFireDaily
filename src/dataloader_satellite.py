@@ -18,8 +18,8 @@ import random
 from src.config import Config
 from src.dataloader_helper import create_stratified_splits, calculate_h5_statistics_filtered
 
-# Add project root to sys.path to allow 'from config import settings'
-root = Path(__file__).resolve().parent.parent.parent
+# Add project root to sys.path to allow 'from configs import settings'
+root = Path(__file__).resolve().parent.parent
 if str(root) not in sys.path:
     sys.path.append(str(root))
 
@@ -548,7 +548,7 @@ def get_dataloaders(config: Config, cloud_threshold: float = 35.0, max_sat_lookb
         sat_nodata=np.nan,
         cloud_threshold=cloud_threshold,
         max_sat_lookback_days=max_sat_lookback_days,
-        is_train=True  
+        is_train=False  
     )
     
     print(f'Number of training samples :: {len(train_dataset)}')
@@ -572,7 +572,7 @@ def get_dataloaders(config: Config, cloud_threshold: float = 35.0, max_sat_lookb
     test_loader = DataLoader(
         test_dataset, 
         batch_size=tc.batch_size, 
-        shuffle=True, 
+        shuffle=False, 
         num_workers=tc.num_workers,
         persistent_workers=False
     )

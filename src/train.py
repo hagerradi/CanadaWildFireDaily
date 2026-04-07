@@ -1,13 +1,4 @@
-"""
-Training entry point.
-
-Usage:
-    python -m src.train
-    python -m src.train --config configs/default.yaml
-"""
 from __future__ import annotations
-
-import argparse
 
 import torch
 import torch.nn as nn
@@ -43,10 +34,14 @@ class ComboLoss(nn.Module):
         return (self.focal_weight * focal_l) + (self.dice_weight * dice_l)
 
 def train(config: Config) -> None:
-    """Set up all components and run the training loop.
+    """
+    Set up all components and run the training loop.
 
     Args:
-        config: Global configuration object.
+        config: Configuration object containing hyperparameters and paths.
+
+    Returns:
+        The fitted Trainer instance and the test DataLoader.
     """
     # Fix all random seeds (CPU, CUDA, CuDNN, Python)
     seed_everything(config.seed)
@@ -79,7 +74,7 @@ def train(config: Config) -> None:
         patience=1
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = Trainer._resolve_device(config.training.device)
 
     if config.training.use_cumuarea:
         # --- 3-CLASS SETUP ---

@@ -14,13 +14,13 @@ class DatasetConfig:
     width: int = 256
     channels: int = 20
     num_samples: int = 19937
-    num_classes: int = 2
+    num_classes: int = 1
 
 
 @dataclass
 class ModelConfig:
     input_channels: int = 20
-    num_classes: int = 2
+    num_classes: int = 1
     hidden_features: list[int] = field(default_factory=lambda: [64, 128, 256, 512])
     use_skip_connections: bool = True
     use_activation_after_upsampling: bool = False

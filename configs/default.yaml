@@ -34,4 +34,4 @@ comet:
   project_name: ""
   workspace: ""
   experiment_name: "unet-baseline-01"
-  experiment_tags: ["baseline", "20-channels", "3-classes"]
+  experiment_tags: ["baseline", "20-channels", "1-classe"]

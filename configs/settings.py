@@ -8,9 +8,10 @@ LAT_COL = 'lat'
 SUBSET_FEATURE_LIST = ['ID', 'lon', 'lat', 'easting', 'northing', 'fireday', 'year', 'DOB', 'firearea', 'cumuarea', 'prec', 'tmax', 'ws', 'rh', 
                         'dem', 'slope', 'aspect', 'Biomass', 'Closure', 'prcB', 'prcC']
 
-PROJECT_FOLDER = ''
-DATA_FOLDER = ''
-OUTPUT_FOLDER = ''
+# To be modified depending on the structure of your project
+PROJECT_FOLDER = 'Wildfires_Spread'
+DATA_FOLDER = 'Data'
+OUTPUT_FOLDER = 'H5_Files'
 
 
 H5_OUTPUT_FOLDER = f'{OUTPUT_FOLDER}/Fires_H5'

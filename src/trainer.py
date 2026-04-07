@@ -329,20 +329,36 @@ class Trainer:
                 "Dice_1_Old_Fire": class_dices[1].item(),
                 "Dice_2_New_Fire": class_dices[2].item(),
             })
+        
         elif len(class_ious) == 2:
-            final_metrics.update({
+
+            binary_metrics = {
                 "IoU_0_Background": class_ious[0].item(),
                 "IoU_1_New_Fire": class_ious[1].item(),
                 
                 "Dice_0_Background": class_dices[0].item(),
                 "Dice_1_New_Fire": class_dices[1].item(),
+            }
 
-                # Compute and log the classification metrics
-                "Precision": self.precision_metric.compute().item(),
-                "Recall": self.recall_metric.compute().item(),
-                "AUC_ROC": self.auroc_metric.compute().item(),
-                "AUC_PR": self.aucpr_metric.compute().item(),
-            })
+            metrics_updated = all(
+                getattr(metric, "update_called", False)
+                for metric in (
+                    self.precision_metric,
+                    self.recall_metric,
+                    self.auroc_metric,
+                    self.aucpr_metric,
+                )
+            )
+
+            if metrics_updated:
+                binary_metrics.update({
+                    "Precision": self.precision_metric.compute().item(),
+                    "Recall": self.recall_metric.compute().item(),
+                    "AUC_ROC": self.auroc_metric.compute().item(),
+                    "AUC_PR": self.aucpr_metric.compute().item(),
+                })
+
+            final_metrics.update(binary_metrics)
             
         avg_loss = total_loss / len(loader)
 
@@ -350,20 +366,27 @@ class Trainer:
 
     def save_checkpoint(self, path: str | Path, epoch: int) -> None:
         """Save model and optimizer state to disk."""
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state_dict": self.model.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
-            },
-            path,
-        )
+        """Save model, optimizer, and scheduler state to disk."""
+        checkpoint_data = {
+            "epoch": epoch,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+        }
+        
+        # Only save scheduler if it exists
+        if self.scheduler is not None:
+            checkpoint_data["scheduler_state_dict"] = self.scheduler.state_dict()
+            
+        torch.save(checkpoint_data, path)
 
     def load_checkpoint(self, path: str | Path) -> int:
         """Load model and optimizer state from a checkpoint file."""
         checkpoint = torch.load(path, map_location=self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        # Restore scheduler if it was saved and exists in the current trainer
+        if "scheduler_state_dict" in checkpoint and self.scheduler is not None:
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         return checkpoint["epoch"]
 
     # ------------------------------------------------------------------

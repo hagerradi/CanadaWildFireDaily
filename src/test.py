@@ -1,20 +1,13 @@
 """
-Evaluation entry point.
-
 Loads a trained model checkpoint and evaluates it on the held-out test split.
-
 """
 from __future__ import annotations
-
-import argparse
 
 import torch
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import os
 
-from src.config import Config
-from src.models.unet import UNet
 from src.trainer import Trainer
 
 
@@ -22,7 +15,7 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
     """Load a checkpoint and evaluate on the test split.
 
     Args:
-        config: Global configuration object.
+        Trainer: Trained model class.
         checkpoint_path: Path to the model checkpoint file.
         test_loader: DataLoader containing the test dataset.
 
