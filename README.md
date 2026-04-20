@@ -84,11 +84,11 @@ conda config --set solver libmamba
 ```
 
 **3. Create the Environment and Install GDAL**
-Create the environment in your scratch space and install GDAL alongside the required spatial Python libraries from `conda-forge`:
+Create the environment and install GDAL alongside the required spatial Python libraries from `conda-forge`:
 ```bash
 # Create and activate the environment
-conda create -p $SCRATCH/conda_wildfires_env python=3.10
-conda activate $SCRATCH/conda_wildfires_env
+conda create -p conda_wildfires_env python=3.10
+conda activate conda_wildfires_env
 
 # Install GDAL and spatial dependencies
 conda install -c conda-forge gdal rasterio pyproj pandas numpy
@@ -152,7 +152,7 @@ Activate your GDAL Conda environment and run the build command at the same direc
 
 ```bash
 # Activate the GDAL environment you created in Part 2
-conda activate $SCRATCH/conda_wildfires_env
+conda activate conda_wildfires_env
 
 # Navigate to the folder containing DEM_Tiles
 cd /path/to/your/DATA_FOLDER/DEM_API/
