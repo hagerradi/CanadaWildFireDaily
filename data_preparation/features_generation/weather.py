@@ -43,6 +43,8 @@ def process_era5_grid(ds_fire, lon_grid, lat_grid, day_attrs):
     # Calculations
     u, v = noon_data['u10'].values, noon_data['v10'].values
     ws = np.sqrt(u**2 + v**2) * 3.6
+    u_kmh = u * 3.6
+    v_kmh = v * 3.6
     
     t_c = noon_data['t2m'].values - 273.15
     d_c = noon_data['d2m'].values - 273.15
@@ -52,7 +54,9 @@ def process_era5_grid(ds_fire, lon_grid, lat_grid, day_attrs):
         "ws": ws,
         "rh": rh,
         "tmax": tmax_data.values - 273.15,
-        "prec": prec_data.values * 1000
+        "prec": prec_data.values * 1000,
+        "u10": u_kmh,
+        "v10": v_kmh
     }
 
 def fast_deduplicate_by_data(ds):

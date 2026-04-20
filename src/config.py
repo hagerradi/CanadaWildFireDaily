@@ -13,9 +13,7 @@ class DatasetConfig:
     height: int = 256
     width: int = 256
     channels: int = 20
-    num_samples: int = 19937
     num_classes: int = 1
-
 
 @dataclass
 class ModelConfig:
@@ -41,6 +39,11 @@ class TrainingConfig:
     log_interval: int = 10
     use_cumuarea: bool = False
     use_cumuarea_prev: bool = True
+    downscale: bool = False
+    downscale_factor: int = 1
+    smooth_mask: bool = True
+    smooth_kernel: int = 3
+    use_cyclical_aspect: bool = True
 
 
 @dataclass

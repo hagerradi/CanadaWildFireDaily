@@ -5,7 +5,6 @@ from src.train import train
 from src.test import test
 from pathlib import Path
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Wildfire segmentation — entry point.")
     parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to YAML config file.")
@@ -13,6 +12,7 @@ def main() -> None:
 
     config = Config.from_yaml(args.config)
     trainer, test_loader = train(config)
+
 
     # Run Testing
     checkpoint_dir = Path(config.training.checkpoint_dir)
