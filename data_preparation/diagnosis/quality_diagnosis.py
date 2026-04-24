@@ -11,7 +11,7 @@ import sys
 # if str(root) not in sys.path:
 #     sys.path.append(str(root))
 
-from config import settings
+from configs import settings
 
 def apply_quality_masks(h5_folder, dynamic_feats, static_feats):
     """

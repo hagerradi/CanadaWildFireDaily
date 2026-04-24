@@ -10,7 +10,7 @@ import pandas as pd
 # if str(root) not in sys.path:
 #     sys.path.append(str(root))
 
-from config import settings
+from configs import settings
 
 def generate_fire_terrain(
     fire_id, 

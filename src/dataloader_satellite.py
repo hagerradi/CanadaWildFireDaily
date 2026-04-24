@@ -18,12 +18,12 @@ import random
 from src.config import Config
 from src.dataloader_helper import create_stratified_splits, calculate_h5_statistics_filtered
 
-# Add project root to sys.path to allow 'from config import settings'
-root = Path(__file__).resolve().parent.parent.parent
-if str(root) not in sys.path:
-    sys.path.append(str(root))
+# # Add project root to sys.path to allow 'from config import settings'
+# root = Path(__file__).resolve().parent.parent.parent
+# if str(root) not in sys.path:
+#     sys.path.append(str(root))
 
-from config import settings
+from configs import settings
 
 class H5FireSimpleDataset(Dataset):
     
