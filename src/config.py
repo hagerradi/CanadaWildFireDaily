@@ -12,14 +12,12 @@ from pathlib import Path
 class DatasetConfig:
     height: int = 256
     width: int = 256
-    channels: int = 3
-    num_samples: int = 1000
+    channels: int = 20
     num_classes: int = 1
-
 
 @dataclass
 class ModelConfig:
-    input_channels: int = 3
+    input_channels: int = 20
     num_classes: int = 1
     hidden_features: list[int] = field(default_factory=lambda: [64, 128, 256, 512])
     use_skip_connections: bool = True
@@ -28,17 +26,24 @@ class ModelConfig:
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 8
-    num_epochs: int = 10
+    batch_size: int = 16
+    num_epochs: int = 1
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
-    train_split: float = 0.8
-    val_split: float = 0.1
-    test_split: float = 0.1
+    train_split: float = 0.7
+    val_split: float = 0.15
+    test_split: float = 0.15
     num_workers: int = 4
     device: str = "auto"
     checkpoint_dir: str = "checkpoints"
     log_interval: int = 10
+    use_cumuarea: bool = False
+    use_cumuarea_prev: bool = True
+    downscale: bool = False
+    downscale_factor: int = 1
+    smooth_mask: bool = True
+    smooth_kernel: int = 3
+    use_cyclical_aspect: bool = True
 
 
 @dataclass

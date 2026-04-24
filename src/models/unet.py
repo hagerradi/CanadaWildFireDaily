@@ -4,7 +4,6 @@ Baselines: Classic U-Net encoder-decoder with optional skip connections.
 import torch
 import torch.nn as nn
 
-
 class UNet(nn.Module):
     def __init__(self, input_channels: int = 1, num_classes: int = 1, hidden_features: list = None, use_skip_connections: bool = True, use_activation_after_upsampling: bool = False):
         """
@@ -88,12 +87,3 @@ class UNet(nn.Module):
         # output layer
         x = self.out_conv(x)
         return x
-
-# TODO: Add test code to verify the model architecture
-if __name__ == "__main__":
-    model = UNet(input_channels=36, num_classes=1)
-    print(model)
-    x = torch.randn(2, 36, 256, 256)  # Batch of 2, 2 channel3, 256x256
-    output = model(x)
-    print(f"Input shape: {x.shape}")
-    print(f"Output shape: {output.shape}")
