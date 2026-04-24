@@ -131,7 +131,14 @@ def apply_quality_masks(h5_folder, dynamic_feats, static_feats):
 if __name__ == "__main__":
     folder_path = settings.H5_OUTPUT_FOLDER
     
-    selected_bands = [f"s2_B{i:02}" for i in range(1, 13) if i != 10]
+    selected_bands = [
+        "s2_B02", # Blue
+        "s2_B03", # Green
+        "s2_B04", # Red
+        "s2_B08", # NIR
+        "s2_B11", # SWIR 1
+        "s2_B12"  # SWIR 2
+    ]
     dynamic_feats = ['tmax', 'rh', 'ws', 'prec', 'evi', 'ndvi', 'u10', 'v10'] + selected_bands
     static_feats = ['dem_avg', 'slope', 'aspect', 'biomass', 'closure', 'prcc', 'prcb']
     
