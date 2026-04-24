@@ -5,13 +5,13 @@ import pandas as pd
 import numpy as np
 import pystac_client
 
-# Add project root to sys.path to allow 'from configs import settings'
-root = Path(__file__).resolve().parent.parent
-if str(root) not in sys.path:
-    sys.path.append(str(root))
+# # Add project root to sys.path to allow 'from configs import settings'
+# root = Path(__file__).resolve().parent.parent.parent
+# if str(root) not in sys.path:
+#     sys.path.append(str(root))
 
 from configs import settings
-import satellite_sentinel
+import data_preparation.satellite_generation.satellite_sentinel as satellite_sentinel
 
 def get_fire_ids(target_year, npy_path=None):
     """
@@ -95,7 +95,7 @@ def main():
     
     # Run the Pipeline
     try:
-        satellite_sentinel.run_s2_h5_pipeline_v2(
+        satellite_sentinel.run_s2_h5_pipeline(
             h5_path=h5_path,
             catalog=catalog,
             bands=selected_bands

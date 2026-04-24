@@ -6,7 +6,6 @@ import rioxarray
 import xarray as xr
 from pyproj import Transformer
 import h5py
-import json
 
 SCANFI_VARS = {
     'Biomass': 'SCANFI_att_biomass_SW',

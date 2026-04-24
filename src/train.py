@@ -5,18 +5,19 @@ import torch.nn as nn
 import time
 
 from src.config import Config
-# from src.dataloader import get_dataloaders
 from src.dataloader_satellite import get_dataloaders
+from src.dataloader_timeseries import get_timeseries_dataloaders
 from src.logger import CometLogger
 from src.models.unet import UNet
+from src.models.unet_convlstm import SpatiotemporalUNet
 from src.trainer import Trainer
 from src.utils import seed_everything
 from src.focal_loss import FocalLoss 
 from src.dice_loss import DiceLoss
 
-class ComboLoss(nn.Module):
+class CombinedLoss(nn.Module):
     def __init__(self, alpha=0.75, gamma=2.0, dice_weight=1.0, focal_weight=1.0):
-        super(ComboLoss, self).__init__()
+        super(CombinedLoss, self).__init__()
         self.focal = FocalLoss(alpha=alpha, gamma=gamma)
         
         # Add smooth=1.0 back to prevent gradient death on empty masks
@@ -34,20 +35,22 @@ class ComboLoss(nn.Module):
         return (self.focal_weight * focal_l) + (self.dice_weight * dice_l)
 
 def train(config: Config) -> None:
-    """
-    Set up all components and run the training loop.
+    """Set up all components and run the training loop.
 
     Args:
-        config: Configuration object containing hyperparameters and paths.
-
-    Returns:
-        The fitted Trainer instance and the test DataLoader.
+        config: Global configuration object.
     """
     # Fix all random seeds (CPU, CUDA, CuDNN, Python)
     seed_everything(config.seed)
 
     # Data
-    train_loader, val_loader, test_loader = get_dataloaders(config, cloud_threshold=40)
+    train_loader, val_loader, test_loader = get_dataloaders(config, 
+                                                            cloud_threshold=40,
+                                                            max_sat_lookback_days=10)
+    # train_loader, val_loader, test_loader = get_timeseries_dataloaders(config, 
+    #                                                         cloud_threshold=40,
+    #                                                         max_sat_lookback_days=15,
+    #                                                         sequence_length=3)
 
     # Model
     mc = config.model
@@ -58,20 +61,29 @@ def train(config: Config) -> None:
         use_skip_connections=mc.use_skip_connections,
         use_activation_after_upsampling=mc.use_activation_after_upsampling,
     )
+    # model = SpatiotemporalUNet(
+    #     input_channels=mc.input_channels,
+    #     num_classes=mc.num_classes,
+    #     hidden_features=mc.hidden_features,
+    #     use_skip_connections=mc.use_skip_connections
+    # )
 
     # Optimizer & loss
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay,
     )
 
-    # Initialize the Scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='min', 
-        factor=0.5,
-        patience=1
+    warmup_epochs = min(1, config.training.num_epochs - 1)
+    steps_per_epoch = len(train_loader)
+    total_steps = config.training.num_epochs * steps_per_epoch
+    warmup_steps = max(1, warmup_epochs * steps_per_epoch)
+
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_steps)
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(total_steps - warmup_steps))
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps]
     )
 
     device = Trainer._resolve_device(config.training.device)
@@ -86,7 +98,7 @@ def train(config: Config) -> None:
         # 0 = Background + Old Fire, 1 = New Fire
         print("Initializing 2-Class Combo Loss (Focal + Dice)...")
         # Higher gamma = harder focus on difficult pixels.
-        loss_fn = ComboLoss(alpha=0.75, gamma=2.0, focal_weight=1.0, dice_weight=1.0).to(device)
+        loss_fn = CombinedLoss(alpha=0.85, gamma=2.0, focal_weight=0.5, dice_weight=0.5).to(device)
 
     # Optional Comet logger
     logger: CometLogger | None = None
@@ -99,10 +111,12 @@ def train(config: Config) -> None:
         logger = CometLogger(
             project_name=cc.project_name,
             workspace=cc.workspace,
+            # experiment_name=cc.experiment_name,
             experiment_name=run_name,
             experiment_tags=cc.experiment_tags or None,
         )
 
+    # Trainer
     trainer = Trainer(
         model=model,
         optimizer=optimizer, 

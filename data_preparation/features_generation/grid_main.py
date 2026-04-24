@@ -4,13 +4,13 @@ import sys
 import pandas as pd
 import numpy as np
 
-root = Path(__file__).resolve().parent.parent
-if str(root) not in sys.path:
-    sys.path.append(str(root))
+# root = Path(__file__).resolve().parent.parent.parent
+# if str(root) not in sys.path:
+#     sys.path.append(str(root))
 
 from configs import settings
-from utils import helpers
-import grid_generation, weather, fuel_scanfi, fuel_viirs, topography
+from data_preparation.features_generation.helpers import lonlat_to_canada_lambert
+import data_preparation.features_generation.grid_generation as grid_generation, data_preparation.features_generation.weather as weather, data_preparation.features_generation.fuel_scanfi as fuel_scanfi, data_preparation.features_generation.fuel_viirs as fuel_viirs, data_preparation.features_generation.topography as topography
 
 TOPO_VARS = {
     'dem_avg': settings.ELEVATION_AVG_FOLDER,
@@ -84,7 +84,7 @@ if __name__ == "__main__":
         
         # Filter DF for this specific fire
         fire_df = fire_growth_pts[fire_growth_pts['ID'] == fire_id].copy()
-        fire_df, _ = helpers.lonlat_to_canada_lambert(fire_df)
+        fire_df, _ = lonlat_to_canada_lambert(fire_df)
 
         # Grid Construction
         grid_params = grid_generation.get_global_grid_params(fire_df, fire_id, settings.GRID_SIZE, settings.PIXEL_SIZE, settings.X_COL, settings.Y_COL)

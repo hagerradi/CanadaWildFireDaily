@@ -4,7 +4,6 @@ dataset:
   height: 256
   width: 256
   channels: 20
-  num_samples: 19937
   num_classes: 1
 
 model:
@@ -28,10 +27,15 @@ training:
   log_interval: 10
   use_cumuarea: false
   use_cumuarea_prev: true
+  downscale: false
+  downscale_factor: 2
+  smooth_mask: false
+  smooth_kernel: 3
+  use_cyclical_aspect: true
 
 comet:
   enabled: true
   project_name: ""
   workspace: ""
   experiment_name: "unet-baseline-01"
-  experiment_tags: ["baseline", "20-channels", "1-classe"]
+  experiment_tags: ["unet-baseline", "1-class"]

@@ -123,7 +123,12 @@ def run_daily_viirs_pipeline(h5_path):
             target_limit_ms = int(current_date_py.timestamp() * 1000)
             
             # Find the most recent VIIRS image strictly before this day
-            valid_times = [t for t in viirs_times_ms if t < target_limit_ms]
+            # valid_times = [t for t in viirs_times_ms if t < target_limit_ms]
+            # A 16-day composite window is 16 days long (in milliseconds)
+            sixteen_days_ms = 16 * 24 * 60 * 60 * 1000
+            # Ensure the ENTIRE 16-day composite finished before our target day
+            valid_times = [t for t in viirs_times_ms if (t + sixteen_days_ms) <= target_limit_ms]
+
             if not valid_times:
                 print(f"  -> No prior VIIRS image found for {day_key}, skipping...")
                 continue
@@ -160,9 +165,17 @@ def run_daily_viirs_pipeline(h5_path):
             ndvi_v2 = da_ndvi.sel(x=x_coords, y=y_coords, method="nearest").compute().values
             evi_v2  = da_evi.sel(x=x_coords, y=y_coords, method="nearest").compute().values
             
-            # Save into the daily features folder
-            env_grp.require_dataset("ndvi", data=ndvi_v2, shape=ndvi_v2.shape, dtype=float, compression="lzf")
-            env_grp.require_dataset("evi",  data=evi_v2,  shape=evi_v2.shape,  dtype=float, compression="lzf")
+            # Save or Update the NDVI dataset
+            if "ndvi" in env_grp:
+                env_grp["ndvi"][...] = ndvi_v2 # overwrite the existing data
+            else:
+                env_grp.require_dataset("ndvi", data=ndvi_v2, shape=ndvi_v2.shape, dtype=float, compression="lzf")
+
+            # Save or Update the EVI dataset
+            if "evi" in env_grp:
+                env_grp["evi"][...] = evi_v2 # overwrite the existing data
+            else:
+                env_grp.require_dataset("evi",  data=evi_v2,  shape=evi_v2.shape,  dtype=float, compression="lzf")
             
         # Final RAM Cleanup
         if memfile:
@@ -183,17 +196,15 @@ def process_all_fires_in_folder(folder_path):
     # Loop through the files
     for h5_file in tqdm(h5_files, desc="Batch Processing Fires"):
         try:
-            # start_vegetation = time.time()
+            start_vegetation = time.time()
             
             run_daily_viirs_pipeline(h5_file)
             successful_fires.append(h5_file.name)
-
-            fire_id = h5_file.stem.replace("fire_", "")
             
         except Exception as e:
             
             print(f"\n Error processing {h5_file.name}: {e}")
-            traceback.print_exc() # Prints the exact line that caused the error for debugging
+            traceback.print_exc()
             failed_fires.append(h5_file.name)
             continue 
 
