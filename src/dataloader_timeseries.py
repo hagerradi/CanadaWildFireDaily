@@ -64,7 +64,7 @@ class H5FireTimeSeriesDataset(Dataset):
         self.samples = [] 
         # self.open_h5_handles = {}
         self.open_h5_handles = OrderedDict()
-        self.max_open_files = 700
+        self.max_open_files = 100
         
         self._index_files()
 
