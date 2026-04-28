@@ -168,7 +168,7 @@ Now, navigate back to your PROJECT_FOLDER (the root of this repository) to run t
 cd /path/to/your/PROJECT_FOLDER/
 
 # Run the GDAL pipeline for a specific year
-python -m data_preparation.raw_data_preprocessing.topography_rasters 2024
+python -m data_preparation.raw_data_preprocessing.topography_rasters_main 2024
 ```
 
 **Note:** You must run this command for all target years in your dataset (e.g., 2020, 2021, 2022, 2023, 2024).
@@ -182,15 +182,31 @@ Once the raw rasters are generated, the data is packaged into structured `.h5` f
 ### 4.1 Features Generation (Base H5 Grids)
 This script constructs the foundational `.h5` file for each fire. It precisely maps daily weather forcing (ERA5), fuel data, and the topographical rasters generated in Part 3 onto a standardized 2D spatial grid.
 
-Run the script by providing the target year and an optional filter list:
+You can run the script either locally on your machine or distributed across a cluster (highly recommended for large datasets). 
+
+**Option A: Local Execution (Single Machine)**
+Ideal for testing or processing a small subset of data. This mode processes the fires sequentially on your current machine.
 ```bash
-python -m data_preparation.features_generation.grid_main 2024 /path/to/fire_ids_256_5_years.npy
+python -m data_preparation.features_generation.grid_main 2024 \
+  --mode local
 ```
 
-**Key Execution Notes:**
-* **Target Years:** You must run this command for **all target years** in your dataset (e.g., 2020 through 2024).
-* **The ID Filter (Optional):** The `fire_ids_256_5_years.npy` file contains a pre-filtered list of fire IDs that are guaranteed to physically fit inside the 256x256 grid boundaries. If you do not specify this path, the script will default to generating grids for **all** fires in that year.
-* **Parallel Processing (Recommended):** Generating these dense 3D/4D `.h5` files is heavily I/O bound. We highly recommend running this step in parallel using a cluster (e.g., via a SLURM job array). During our testing, processing batches of 10 fires per parallel job yielded optimal performance.
+**Option B: Distributed Execution (SLURM Cluster)**
+Ideal for processing entire years. This uses SLURM array task IDs to process multiple chunks of fires in parallel.
+```bash
+python -m data_preparation.features_generation.grid_main 2024 \
+  --mode distributed \
+  --task-id $SLURM_ARRAY_TASK_ID \
+  --chunk-size 10
+```
+
+### Parameters Explained
+* **`YEAR` (Positional):** The target year to process (e.g., `2024`). You must run this command for **all target years** in your dataset independently.
+* **`--mode`:** 
+  * `local`: Runs sequentially on your current machine.
+  * `distributed`: Tells the script to look for a specific subset of fires based on the `--task-id`, allowing hundreds of nodes to process the dataset simultaneously without overlapping.
+* **`--task-id`:** Required if using `--mode distributed`. It maps to your cluster's job array index (e.g., `$SLURM_ARRAY_TASK_ID`), determining exactly which chunk of fires the current job is responsible for.
+* **`--chunk-size`:** Used with `--mode distributed`. Defines how many fires a single job or process should handle. Generating these dense 3D/4D `.h5` files is heavily I/O bound. During our testing, processing batches of **5 to 10 fires** per parallel job yielded optimal performance.
 
 
 ### 4.2 Satellite Generation (Sentinel-2 Imagery)
