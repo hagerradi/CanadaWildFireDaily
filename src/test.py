@@ -1,11 +1,9 @@
-"""
-Loads a trained model checkpoint and evaluates it on the held-out test split.
-"""
 from __future__ import annotations
 
 import torch
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 import os
 
 from src.trainer import Trainer
@@ -15,7 +13,7 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
     """Load a checkpoint and evaluate on the test split.
 
     Args:
-        Trainer: Trained model class.
+        config: Global configuration object.
         checkpoint_path: Path to the model checkpoint file.
         test_loader: DataLoader containing the test dataset.
 
@@ -55,9 +53,21 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
             for batch in test_loader:
                 if images_logged >= max_images:
                     break # Stop if we hit max
-                    
-                inputs, masks = batch[0].to(trainer.device), batch[1].to(trainer.device)
-                predictions = trainer.model(inputs)
+
+                # ==========================================
+                # DELTA_T UNPACKING LOGIC
+                # ==========================================
+                if len(batch) == 3:
+                    inputs, masks, delta_t = batch
+                    inputs = inputs.to(trainer.device)
+                    masks = masks.to(trainer.device)
+                    delta_t = delta_t.to(trainer.device)
+                    predictions = trainer.model(inputs, delta_t)
+                else:
+                    inputs, masks = batch
+                    inputs = inputs.to(trainer.device)
+                    masks = masks.to(trainer.device)
+                    predictions = trainer.model(inputs)
 
                 # ==========================================
                 # DYNAMIC PREVIOUS FIRE MASK EXTRACTION
@@ -86,6 +96,24 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                     # Extract just the "New Fire" probability layer
                     target_class_idx = 2 if is_3_class else 1
                     prob_maps = pred_probs_all[:, target_class_idx, :, :]
+
+                
+                # ==========================================
+                # COARSE / CLEANED MASKS GENERATION
+                # ==========================================
+                downscale = 2
+
+                # Cleaned GT
+                raw_masks = masks.float().unsqueeze(1)
+                dilated_masks = F.max_pool2d(raw_masks, kernel_size=3, stride=1, padding=1)
+                closed_masks = -F.max_pool2d(-dilated_masks, kernel_size=3, stride=1, padding=1)
+                coarse_masks = F.max_pool2d(closed_masks, kernel_size=downscale, stride=downscale).squeeze(1).long()
+                
+                # Cleaned Predictions
+                pred_float = pred_classes.float().unsqueeze(1)
+                dilated_preds = F.max_pool2d(pred_float, kernel_size=3, stride=1, padding=1)
+                closed_preds = -F.max_pool2d(-dilated_preds, kernel_size=3, stride=1, padding=1)
+                coarse_preds = F.max_pool2d(closed_preds, kernel_size=downscale, stride=downscale).squeeze(1).long()
                 
                 # Check each individual image in this batch
                 for i in range(masks.size(0)):
@@ -107,7 +135,7 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                         c1_count = (true_mask == 1).sum().item()
                         is_interesting = (c1_count >= min_pixels)
                     
-                    # If it meets our criteria!
+                    # If it meets our criteria
                     if is_interesting:
                         true_np = true_mask.cpu().numpy()
                         pred_np = pred_classes[i].cpu().numpy()
@@ -115,28 +143,42 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                         
                         # Get numpy array for the previous fire mask
                         prev_fire_np = prev_fire_masks[i].cpu().numpy()
+
+                        # Coarse numpy arrays
+                        coarse_true_np = coarse_masks[i].cpu().numpy()
+                        coarse_pred_np = coarse_preds[i].cpu().numpy()
                         
-                        fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+                        fig, axes = plt.subplots(1, 6, figsize=(30, 5))
                         
-                        # 1. Previous Fire Mask
+                        # Previous Fire Mask
                         axes[0].imshow(prev_fire_np, cmap='gray', vmin=0, vmax=1)
                         axes[0].set_title("Previous Fire Mask")
                         axes[0].axis('off')
                         
-                        # 2. Ground Truth
+                        # Ground Truth
                         axes[1].imshow(true_np, cmap='viridis', vmin=0, vmax=vmax_val)
                         axes[1].set_title("Ground Truth")
                         axes[1].axis('off')
                         
-                        # 3. Test Prediction
+                        # Test Prediction
                         axes[2].imshow(pred_np, cmap='viridis', vmin=0, vmax=vmax_val)
                         axes[2].set_title("Test Prediction (Best Checkpoint)")
                         axes[2].axis('off')
 
-                        # 4. Probability Map
+                        # Probability Map
                         im = axes[3].imshow(prob_np, cmap='magma', vmin=0.0, vmax=1.0)
                         axes[3].set_title("New Fire Probability")
                         axes[3].axis('off')
+
+                        # Ground Truth (Coarse)
+                        axes[4].imshow(coarse_true_np, cmap='viridis', vmin=0, vmax=vmax_val)
+                        axes[4].set_title(f"Ground Truth (Coarse {downscale}x)")
+                        axes[4].axis('off')
+                        
+                        # Prediction (Coarse)
+                        axes[5].imshow(coarse_pred_np, cmap='viridis', vmin=0, vmax=vmax_val)
+                        axes[5].set_title(f"Prediction (Coarse {downscale}x)")
+                        axes[5].axis('off')
                         
                         # The legend/colorbar on the right side
                         fig.colorbar(im, ax=axes[3], fraction=0.046, pad=0.04)

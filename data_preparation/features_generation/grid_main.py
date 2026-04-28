@@ -1,108 +1,122 @@
-from pathlib import Path
-import os
 import sys
+import argparse
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
-# root = Path(__file__).resolve().parent.parent.parent
-# if str(root) not in sys.path:
-#     sys.path.append(str(root))
-
 from configs import settings
 from data_preparation.features_generation.helpers import lonlat_to_canada_lambert
-import data_preparation.features_generation.grid_generation as grid_generation, data_preparation.features_generation.weather as weather, data_preparation.features_generation.fuel_scanfi as fuel_scanfi, data_preparation.features_generation.fuel_viirs as fuel_viirs, data_preparation.features_generation.topography as topography
+import data_preparation.features_generation.grid_generation as grid_generation
+import data_preparation.features_generation.weather as weather
+import data_preparation.features_generation.fuel_scanfi as fuel_scanfi
+import data_preparation.features_generation.fuel_viirs as fuel_viirs
+import data_preparation.features_generation.topography as topography
 
 TOPO_VARS = {
-    'dem_avg': settings.ELEVATION_AVG_FOLDER,
+    'dem': settings.ELEVATION_FOLDER,
     'slope': settings.SLOPE_FOLDER,
     'aspect': settings.ASPECT_FOLDER
 }
 
-# Configuration
-CHUNK_SIZE = 10
-task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
+def process_fire_pipeline(fire_id, fire_growth_pts):
+    """
+    Executes the complete data extraction pipeline for a single fire.
+    """
+    print(f"\n--- Starting Fire: {fire_id} ---")
+    
+    # Filter DF for this specific fire
+    fire_df = fire_growth_pts[fire_growth_pts['ID'] == fire_id].copy()
+    fire_df, _ = lonlat_to_canada_lambert(fire_df)
 
-def get_fire_ids(target_year, npy_path=None):
-    """
-    Retrieves fire IDs with a focus on speed.
-    - Prioritizes loading from a .npy file to avoid heavy CSV parsing.
-    - Filters IDs to ensure they contain the target_year string.
-    """
-    all_fire_ids = []
+    # Grid Construction
+    grid_generation.generate_fire_h5(
+        df=fire_df,
+        fire_id=fire_id,
+        output_folder=settings.H5_OUTPUT_FOLDER, 
+        grid_size=settings.GRID_SIZE, 
+        pixel_size=settings.PIXEL_SIZE, 
+        x_col=settings.X_COL,
+        y_col=settings.Y_COL,
+        lon_col=settings.LON_COL,
+        lat_col=settings.LAT_COL,
+        fill_value=np.nan
+    )
+
+    h5_path = Path(settings.H5_OUTPUT_FOLDER) / f"fire_{fire_id}.h5"
     
-    # Load the target ids
-    if npy_path and os.path.exists(npy_path):
-        print(f"Loading from numpy: {npy_path}")
-        all_fire_ids = np.load(npy_path).tolist()
+    # Generate the environmental variables
+    weather.run_single_h5_era5_pipeline(h5_path, settings.ERA5_FOLDER)
+    topography.run_static_topography_pipeline(h5_path, TOPO_VARS)
+    fuel_scanfi.run_single_fire_scanfi(h5_path, settings.SCANFI_FOLDER)
+    fuel_viirs.run_daily_viirs_pipeline(h5_path)
+
+    print(f"--- Finished Fire: {fire_id} ---")
+
+
+def run_local(all_fire_ids, fire_growth_pts):
+    """Processes all fires sequentially for local/laptop execution."""
+    total_fires = len(all_fire_ids)
+    print(f"\n=== LOCAL MODE: Processing ALL {total_fires} fires sequentially ===")
     
-    # Fallback to CSV only if needed
-    else:
-        print(f"Numpy path not found. Loading CSV for year {target_year}...")
-        csv_path = f'{settings.BASE_FOLDER}/Firegrowth_pts_v1_1_{target_year}/Firegrowth_pts_v1_1_{target_year}.csv'
+    for i, fire_id in enumerate(all_fire_ids, start=1):
+        print(f"\n[{i}/{total_fires}] Processing Fire ID: {fire_id}")
+        process_fire_pipeline(fire_id, fire_growth_pts)
+
+
+def run_distributed(all_fire_ids, fire_growth_pts, task_id, chunk_size):
+    """Processes a chunk of fires based on the SLURM Array Task ID."""
+    total_fires = len(all_fire_ids)
+    
+    start_idx = task_id * chunk_size
+    end_idx = start_idx + chunk_size
+    
+    # Safety check if the math pushes the start index beyond the list length
+    if start_idx >= total_fires:
+        print(f"[!] Task ID {task_id} starts at {start_idx}, which is out of bounds (max {total_fires}). Exiting gracefully.")
+        sys.exit(0)
         
-        df_ids = pd.read_csv(csv_path, usecols=['ID'])
-        all_fire_ids = df_ids['ID'].unique().tolist()
-
-    # Filter for IDs containing the target year
-    filtered_ids = sorted([str(fid) for fid in all_fire_ids if str(fid).startswith(f"{target_year}_")])
+    my_fires = all_fire_ids[start_idx:end_idx]
     
-    return filtered_ids
+    print(f"\n=== DISTRIBUTED MODE: Task {task_id} ===")
+    print(f"Processing {len(my_fires)} fires (Indices {start_idx} to {start_idx + len(my_fires) - 1} out of {total_fires})")
+    print(f"Assigned Fires: {my_fires}")
+    
+    for fire_id in my_fires:
+        process_fire_pipeline(fire_id, fire_growth_pts)
+
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate Complete Feature H5 Files for Wildfires.")
+    parser.add_argument("year", type=str, help="The target year to process (e.g., 2024)")
+    parser.add_argument("--mode", type=str, choices=["local", "distributed"], default="local", 
+                        help="Execution mode: 'local' (sequential) or 'distributed' (parallel array task)")
+    parser.add_argument("--task-id", type=int, default=-1, 
+                        help="SLURM Array Task ID (Required if mode is 'distributed')")
+    parser.add_argument("--chunk-size", type=int, default=5,
+                        help="Number of fires to process per SLURM task (default: 5)")
+    
+    args = parser.parse_args()
 
-    if len(sys.argv) > 2:
-        target_year = str(sys.argv[1])
-        npy_path = str(sys.argv[2])
-    # Check if only the year is provided
-    elif len(sys.argv) > 1:
-        target_year = str(sys.argv[1])
-        npy_path = None
-    # Default fallback
-    else:
-        target_year = '2020'
-        npy_path = None
+    print(f"Grid Size Configuration: {settings.GRID_SIZE}")
 
-    print(settings.GRID_SIZE)
-
-    # Load the full list of IDs
-    fire_growth_pts = pd.read_csv(f'{settings.BASE_FOLDER}/Firegrowth_pts_v1_1_{target_year}/Firegrowth_pts_v1_1_{target_year}.csv')
-    all_fire_ids = get_fire_ids(target_year, npy_path)
-    print(f'Target Year :: {target_year}')
-    print(f'Path :: {npy_path}')
-    print(f'Number of IDs :: {len(all_fire_ids)}')
-
-    # Calculate which slice of the list this task handles
-    start_idx = task_id * CHUNK_SIZE
-    end_idx = start_idx + CHUNK_SIZE
-    my_fires = all_fire_ids[start_idx:end_idx]
-
-    print(f"Task {task_id} processing {len(my_fires)} fires: {my_fires}")
-
-    # Loop through the 10 fires assigned to THIS task
-    for fire_id in my_fires:
-        print(f"--- Starting Fire: {fire_id} ---")
+    target_year = args.year
+    print(f"Target Year: {target_year}")
+    
+    csv_path = f"{settings.BASE_FOLDER}/Firegrowth_pts_v1_1_{target_year}/Firegrowth_pts_v1_1_{target_year}.csv"
+    try:
+        fire_growth_pts = pd.read_csv(csv_path)
+    except FileNotFoundError:
+        print(f"[!] Error: Could not find CSV at {csv_path}")
+        sys.exit(1)
         
-        # Filter DF for this specific fire
-        fire_df = fire_growth_pts[fire_growth_pts['ID'] == fire_id].copy()
-        fire_df, _ = lonlat_to_canada_lambert(fire_df)
+    all_fire_ids = sorted(fire_growth_pts['ID'].unique())
+    print(f"Number of unique fires: {len(all_fire_ids)}")
 
-        # Grid Construction
-        grid_params = grid_generation.get_global_grid_params(fire_df, fire_id, settings.GRID_SIZE, settings.PIXEL_SIZE, settings.X_COL, settings.Y_COL)
-        grid_generation.initialize_fire_h5(settings.H5_OUTPUT_FOLDER, fire_id, target_year, grid_params, pixel_size=settings.PIXEL_SIZE, fill_value=np.nan)
-        
-        for fireday in sorted(fire_df['fireday'].unique()):
-            grid_generation.add_fire_day_to_h5(f"{settings.H5_OUTPUT_FOLDER}/fire_{fire_id}.h5", 
-                                                fire_df, fire_id, fireday, grid_params, 
-                                                pixel_size=settings.PIXEL_SIZE)
-
-        h5_path = Path(settings.H5_OUTPUT_FOLDER) / f"fire_{fire_id}.h5"
-        
-        # Generate the environemental variables
-        weather.run_single_h5_era5_pipeline(h5_path, settings.ERA5_FOLDER)
-        topography.run_static_topography_pipeline(h5_path, TOPO_VARS)
-        fuel_scanfi.run_single_fire_scanfi(h5_path, settings.SCANFI_FOLDER)
-        fuel_viirs.run_single_fire_viirs(h5_path)
-
-        print(f"--- Finished Fire: {fire_id} ---")
-
-    print(f"Task {task_id} complete.")
+    # Route to the correct execution path
+    if args.mode == "local":
+        run_local(all_fire_ids, fire_growth_pts)
+    elif args.mode == "distributed":
+        if args.task_id == -1:
+            print("[!] Error: You must provide a --task-id when using distributed mode.")
+            sys.exit(1)
+        run_distributed(all_fire_ids, fire_growth_pts, args.task_id, args.chunk_size)

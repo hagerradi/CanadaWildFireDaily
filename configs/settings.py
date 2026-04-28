@@ -12,10 +12,10 @@ SUBSET_FEATURE_LIST = ['ID', 'lon', 'lat', 'easting', 'northing', 'fireday', 'ye
 
 # To be replaced with the absolute paths
 PROJECT_FOLDER = 'Wildfires_Spread'
-DATA_FOLDER = 'Data'
-OUTPUT_FOLDER = 'Output'
+DATA_FOLDER = 'raw_data_wildfires_spread'
+OUTPUT_FOLDER = 'output_data_wildfires_spread'
 
-H5_OUTPUT_FOLDER = f'{OUTPUT_FOLDER}/Fires_H5'
+H5_OUTPUT_FOLDER = f'{OUTPUT_FOLDER}/Fires_H5_v2'
 METADATA_FOLDER = f'{PROJECT_FOLDER}/fires_metadata'
 SATELLITE_STATUS_FOLDER = f'{PROJECT_FOLDER}/Satellite_Status'
 

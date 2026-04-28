@@ -1,13 +1,13 @@
 from pathlib import Path
 import ee
 import time
-import datetime
+from datetime import datetime, timezone, timedelta
+import numpy as np
 import requests
 from rasterio.io import MemoryFile
 import rioxarray
 import xarray as xr
 from tqdm import tqdm
-import traceback
 import h5py
 
 try:
@@ -63,179 +63,119 @@ def fetch_in_memory_raster(url):
 
 def run_daily_viirs_pipeline(h5_path):
     """
-    Extracts dynamic NDVI and EVI for each day directly into RAM,
-    fetching the composite from strictly before the current fire day.
+    Updated for Tile-Based Architecture.
+    Fetches VIIRS vegetation data for the entire fire extent and distributes it 
+    into the individual tiles and days.
     """
     fire_name = Path(h5_path).stem
-    print(f"\n{'='*60}\nRunning Daily VIIRS Pipeline for: {fire_name}")
+    print(f"\n{'='*60}\nRunning Tile-Based VIIRS Pipeline: {fire_name}")
     
     with h5py.File(h5_path, "a") as f:
-        # Geometry Setup
-        lon_grid = f['geometry/theoretical_lon'][:]
-        lat_grid = f['geometry/theoretical_lat'][:]
-        
+        tile_ids = [k for k in f.keys() if k.startswith('tile_')]
+        if not tile_ids: return
+
+        # FIND GLOBAL BOUNDS ACROSS ALL TILES
+        global_lon_min, global_lon_max = float('inf'), float('-inf')
+        global_lat_min, global_lat_max = float('inf'), float('-inf')
+        all_doys = []
+
+        for tid in tile_ids:
+            lon_grid = f[f"{tid}/coords/theoretical_lon"][:]
+            lat_grid = f[f"{tid}/coords/theoretical_lat"][:]
+            global_lon_min = min(global_lon_min, lon_grid.min())
+            global_lon_max = max(global_lon_max, lon_grid.max())
+            global_lat_min = min(global_lat_min, lat_grid.min())
+            global_lat_max = max(global_lat_max, lat_grid.max())
+            
+            # Collect DOYs
+            days_grp = f[f"{tid}/days"]
+            for d_key in days_grp.keys():
+                all_doys.append(int(days_grp[d_key].attrs['DOB']))
+
+        # Define GEE ROI for the entire fire
         buffer = 0.05
-        min_lon, max_lon = lon_grid.min() - buffer, lon_grid.max() + buffer
-        min_lat, max_lat = lat_grid.min() - buffer, lat_grid.max() + buffer
-        roi = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+        roi = ee.Geometry.Rectangle([global_lon_min - buffer, global_lat_min - buffer, 
+                                     global_lon_max + buffer, global_lat_max + buffer])
         
-        x_coords = xr.DataArray(lon_grid, dims=("y", "x"))
-        y_coords = xr.DataArray(lat_grid, dims=("y", "x"))
-        
-        days_grp = f['days']
-        day_keys = sorted(days_grp.keys())
-        if not day_keys: return
-
-        # Time Window Calculation
+        # CALCULATE TIME WINDOW
         fire_year = int(f.attrs['year'])
-        first_doy = int(days_grp[day_keys[0]].attrs['DOB'])
-        last_doy  = int(days_grp[day_keys[-1]].attrs['DOB'])
+        unique_doys = sorted(list(set(all_doys)))
         
-        # Buffer the start date backward by 33 days to catch the previous 16-day composites
-        start_date_ee = ee.Date.fromYMD(fire_year, 1, 1).advance(first_doy - 33, 'day')
-        end_date_ee = ee.Date.fromYMD(fire_year, 1, 1).advance(last_doy, 'day')
+        start_date_ee = ee.Date.fromYMD(fire_year, 1, 1).advance(min(unique_doys) - 33, 'day')
+        end_date_ee = ee.Date.fromYMD(fire_year, 1, 1).advance(max(unique_doys), 'day')
 
-        # Pre-fetch VIIRS composite timestamps (1 API Call)
+        # PRE-FETCH SCHEDULE
         print("Fetching VIIRS composite schedule...")
         viirs_times_ms = ee.ImageCollection("NASA/VIIRS/002/VNP13A1") \
             .filterDate(start_date_ee, end_date_ee) \
             .aggregate_array('system:time_start') \
             .getInfo()
-            
         viirs_times_ms = sorted(viirs_times_ms)
-        
-        # Cache locks
+
+        # Cache variables for the loop
         cached_time_ms = None
-        da_ndvi = None
-        da_evi = None
-        memfile = None
-        src = None
+        da_ndvi, da_evi = None, None
+        memfile, src = None, None
 
-        # Loop through Fire Days
-        for day_key in day_keys:
+        # LOOP THROUGH UNIQUE DOYS (Process all tiles for a given day at once)
+        for current_doy in tqdm(unique_doys):
             
-            day_grp = days_grp[day_key]
-            env_grp = day_grp.require_group('features')
-
-            # Calculate the exact timestamp threshold using daily attribute
-            current_doy = int(day_grp.attrs['DOB'])
-            current_date_py = datetime.datetime(fire_year, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(days=current_doy - 1)
+            # Find the composite for this DOY
+            current_date_py = datetime(fire_year, 1, 1, tzinfo=timezone.utc) + timedelta(days=current_doy - 1)
             target_limit_ms = int(current_date_py.timestamp() * 1000)
-            
-            # Find the most recent VIIRS image strictly before this day
-            # valid_times = [t for t in viirs_times_ms if t < target_limit_ms]
-            # A 16-day composite window is 16 days long (in milliseconds)
             sixteen_days_ms = 16 * 24 * 60 * 60 * 1000
-            # Ensure the ENTIRE 16-day composite finished before our target day
+            
             valid_times = [t for t in viirs_times_ms if (t + sixteen_days_ms) <= target_limit_ms]
-
-            if not valid_times:
-                print(f"  -> No prior VIIRS image found for {day_key}, skipping...")
-                continue
-                
+            if not valid_times: continue
             target_time_ms = valid_times[-1]
 
-            # The GEE Request Block (Only triggers if the 16-day window shifted)
+            # Fetch new image if the 16-day window changed
             if target_time_ms != cached_time_ms:
                 if memfile: 
-                    src.close()
-                    memfile.close() # Flush old TIFF from RAM
+                    src.close(); memfile.close()
                 
-                # Ask GEE for the exact composite
+                # print(f"Fetching GEE Composite for DOY {current_doy}...")
                 img = (ee.ImageCollection("NASA/VIIRS/002/VNP13A1")
                         .filter(ee.Filter.eq('system:time_start', target_time_ms))
-                        .select(['NDVI', 'EVI'])
-                        .first()
-                        .clip(roi))
+                        .select(['NDVI', 'EVI']).first().clip(roi))
                 
                 url = get_gee_url_with_retry(img, roi)
                 if not url: continue
                 
                 da, memfile, src = fetch_in_memory_raster(url)
                 if da is None: continue
+                da_ndvi, da_evi = da.sel(band=1), da.sel(band=2)
+                cached_time_ms = target_time_ms
+
+            # DISTRIBUTE TO TILES
+            for tid in tile_ids:
+                target_day_key = None
+                for k in f[f"{tid}/days"].keys():
+                    if int(f[f"{tid}/days/{k}"].attrs['DOB']) == current_doy:
+                        target_day_key = k
+                        break
                 
-                # Select the bands (GEE keeps the order from `.select(['NDVI', 'EVI'])`)
-                da_ndvi = da.sel(band=1)
-                da_evi = da.sel(band=2)
+                if not target_day_key: continue
+
+                # Get tile coords
+                lon_grid = f[f"{tid}/coords/theoretical_lon"][:]
+                lat_grid = f[f"{tid}/coords/theoretical_lat"][:]
+                x_coords = xr.DataArray(lon_grid, dims=("y", "x"))
+                y_coords = xr.DataArray(lat_grid, dims=("y", "x"))
+
+                # Interpolate
+                ndvi_vals = da_ndvi.sel(x=x_coords, y=y_coords, method="nearest").compute().values.astype(np.float32)
+                evi_vals = da_evi.sel(x=x_coords, y=y_coords, method="nearest").compute().values.astype(np.float32)
+
+                # Save to features
+                feat_grp = f[f"{tid}/days/{target_day_key}/features"]
                 
-                # Update the lock
-                cached_time_ms = target_time_ms 
-            
-            # Calculate the grid values
-            ndvi_v2 = da_ndvi.sel(x=x_coords, y=y_coords, method="nearest").compute().values
-            evi_v2  = da_evi.sel(x=x_coords, y=y_coords, method="nearest").compute().values
-            
-            # Save or Update the NDVI dataset
-            if "ndvi" in env_grp:
-                env_grp["ndvi"][...] = ndvi_v2 # overwrite the existing data
-            else:
-                env_grp.require_dataset("ndvi", data=ndvi_v2, shape=ndvi_v2.shape, dtype=float, compression="lzf")
+                for name, data in [("ndvi", ndvi_vals), ("evi", evi_vals)]:
+                    if name in feat_grp:
+                        del feat_grp[name]
+                        
+                    # Create a fresh float32 container
+                    feat_grp.create_dataset(name, data=data, compression="lzf")
 
-            # Save or Update the EVI dataset
-            if "evi" in env_grp:
-                env_grp["evi"][...] = evi_v2 # overwrite the existing data
-            else:
-                env_grp.require_dataset("evi",  data=evi_v2,  shape=evi_v2.shape,  dtype=float, compression="lzf")
-            
-        # Final RAM Cleanup
-        if memfile:
-            src.close()
-            memfile.close()
-
-def process_all_fires_in_folder(folder_path):
-    """
-    Finds all .h5 files in the target folder and runs the daily VIIRS pipeline.
-    """
-    # Find all .h5 files
-    h5_files = list(Path(folder_path).glob("*.h5"))
-    print(f"Found {len(h5_files)} HDF5 files in {folder_path}\n" + "="*60)
-    
-    successful_fires = []
-    failed_fires = []
-
-    # Loop through the files
-    for h5_file in tqdm(h5_files, desc="Batch Processing Fires"):
-        try:
-            start_vegetation = time.time()
-            
-            run_daily_viirs_pipeline(h5_file)
-            successful_fires.append(h5_file.name)
-            
-        except Exception as e:
-            
-            print(f"\n Error processing {h5_file.name}: {e}")
-            traceback.print_exc()
-            failed_fires.append(h5_file.name)
-            continue 
-
-    # Print the final summary report
-    print(f"\n{'='*60}\nBATCH PROCESSING COMPLETE")
-    print(f"Successfully processed: {len(successful_fires)} fires")
-    print(f"Failed to process: {len(failed_fires)} fires")
-    
-    if failed_fires:
-        print("\nFailed files to review:")
-        for failed in failed_fires:
-            print(f" - {failed}")
-
-def run_single_fire_viirs(h5_file):
-    """
-    Runs the daily VIIRS pipeline for a single .h5 file with error handling.
-    """
-    h5_file = Path(h5_file)
-    
-    if not h5_file.exists():
-        print(f"Error: {h5_file} does not exist.")
-        return False
-
-    print(f"\n{'='*60}\nProcessing VIIRS for: {h5_file.name}")
-
-    try:
-        run_daily_viirs_pipeline(h5_file)
-        print(f"Successfully processed VIIRS for: {h5_file.name}")
-        return True
-
-    except Exception as e:
-        print(f"\n Error processing VIIRS for {h5_file.name}: {e}")
-        traceback.print_exc() 
-        return False
+        # Cleanup
+        if memfile: src.close(); memfile.close()

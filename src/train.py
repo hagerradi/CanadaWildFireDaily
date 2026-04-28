@@ -5,15 +5,23 @@ import torch.nn as nn
 import time
 
 from src.config import Config
-from src.dataloader_satellite import get_dataloaders
+
+# Dataloders
+from src.dataloader import get_dataloaders
 from src.dataloader_timeseries import get_timeseries_dataloaders
-from src.logger import CometLogger
-from src.models.unet import UNet
-from src.models.unet_convlstm import SpatiotemporalUNet
+
+# Models
+from src.models import unet
+from src.models import unet_age
+from src.models import unet_convlstm
+from src.models import unet_attention
+from src.models import unet_segformer
+
 from src.trainer import Trainer
 from src.utils import seed_everything
 from src.focal_loss import FocalLoss 
 from src.dice_loss import DiceLoss
+from src.logger import CometLogger
 
 class CombinedLoss(nn.Module):
     def __init__(self, alpha=0.75, gamma=2.0, dice_weight=1.0, focal_weight=1.0):
@@ -43,30 +51,63 @@ def train(config: Config) -> None:
     # Fix all random seeds (CPU, CUDA, CuDNN, Python)
     seed_everything(config.seed)
 
-    # Data
-    train_loader, val_loader, test_loader = get_dataloaders(config, 
-                                                            cloud_threshold=40,
-                                                            max_sat_lookback_days=10)
-    # train_loader, val_loader, test_loader = get_timeseries_dataloaders(config, 
-    #                                                         cloud_threshold=40,
-    #                                                         max_sat_lookback_days=15,
-    #                                                         sequence_length=3)
-
     # Model
     mc = config.model
-    model = UNet(
-        input_channels=mc.input_channels,
-        num_classes=mc.num_classes,
-        hidden_features=mc.hidden_features,
-        use_skip_connections=mc.use_skip_connections,
-        use_activation_after_upsampling=mc.use_activation_after_upsampling,
-    )
-    # model = SpatiotemporalUNet(
-    #     input_channels=mc.input_channels,
-    #     num_classes=mc.num_classes,
-    #     hidden_features=mc.hidden_features,
-    #     use_skip_connections=mc.use_skip_connections
-    # )
+    
+    if mc.architecture == 'unet':
+        train_loader, val_loader, test_loader = get_dataloaders(config, 
+                                                            is_sat_age=False)
+        model = unet.UNet(
+            input_channels=mc.input_channels,
+            num_classes=mc.num_classes,
+            hidden_features=mc.hidden_features,
+            use_skip_connections=mc.use_skip_connections,
+            use_activation_after_upsampling=mc.use_activation_after_upsampling,
+        )
+        
+    elif mc.architecture == 'unet_age':
+        train_loader, val_loader, test_loader = get_dataloaders(config, 
+                                                            is_sat_age=True)
+        model = unet_age.UNet(
+            input_channels=mc.input_channels,
+            num_classes=mc.num_classes,
+            hidden_features=mc.hidden_features,
+            use_skip_connections=mc.use_skip_connections,
+            use_activation_after_upsampling=mc.use_activation_after_upsampling,
+        )
+
+    elif mc.architecture == 'unet_convlstm':
+        train_loader, val_loader, test_loader = get_timeseries_dataloaders(config, 
+                                                            seq_length=3)
+        model = unet_convlstm.SpatiotemporalUNet(
+            input_channels=mc.input_channels,
+            num_classes=mc.num_classes,
+            hidden_features=mc.hidden_features,
+            use_skip_connections=mc.use_skip_connections
+        )
+
+    elif mc.architecture == 'unet_attention':
+        train_loader, val_loader, test_loader = get_dataloaders(config, 
+                                                            is_sat_age=False)
+        model = unet_attention.AttentionUNet(
+            input_channels=mc.input_channels,
+            num_classes=mc.num_classes,
+            hidden_features=mc.hidden_features,
+            use_skip_connections=mc.use_skip_connections,
+            use_activation_after_upsampling=mc.use_activation_after_upsampling,
+            use_attention=True
+        )
+    
+    elif mc.architecture == 'unet_segformer':
+        train_loader, val_loader, test_loader = get_dataloaders(config, 
+                                                            is_sat_age=False)
+        model = unet_segformer.UNetSegFormer(
+            in_channels=mc.input_channels,
+            out_classes=mc.num_classes
+        )
+    
+    else:
+        raise ValueError(f"Unknown architecture specified in config: '{mc.architecture}'")
 
     # Optimizer & loss
     optimizer = torch.optim.AdamW(
@@ -111,7 +152,6 @@ def train(config: Config) -> None:
         logger = CometLogger(
             project_name=cc.project_name,
             workspace=cc.workspace,
-            # experiment_name=cc.experiment_name,
             experiment_name=run_name,
             experiment_tags=cc.experiment_tags or None,
         )

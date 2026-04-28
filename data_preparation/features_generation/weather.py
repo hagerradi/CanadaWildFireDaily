@@ -83,138 +83,9 @@ def fast_deduplicate_by_data(ds):
     
     return ds.drop_vars('quality')
 
-def run_h5_era5_pipeline(h5_folder, era5_base_folder):
-    
-    h5_files = list(Path(h5_folder).glob("*.h5"))
-    
-    for h5_path in tqdm(h5_files):
-        
-        print(f"\n{'='*60}\nProcessing Fire H5: {h5_path.name}...")
-
-        # start_weather = time.time()
-        
-        with h5py.File(h5_path, "a") as f:
-            
-            # Get Geometry and Time Info
-            lon_grid = f['geometry/theoretical_lon'][:]
-            lat_grid = f['geometry/theoretical_lat'][:]
-
-            fire_id = f.attrs['fire_id']
-            
-            # Collect all months present in this specific fire's days
-            days_grp = f['days']
-            fire_months = []
-            fire_years = []
-            
-            for day_key in days_grp.keys():
-                fire_months.append(int(days_grp[day_key].attrs['month']))
-                fire_years.append(int(f.attrs['year'])) # Using global year attr
-
-            
-            required_months = []
-            
-            # Determine unique months from H5 attributes
-            unique_months = sorted(set(int(f['days'][d].attrs['month']) for d in f['days'].keys()))
-            y_int = int(f.attrs['year'])
-            
-            required_months = []
-            for m_int in unique_months:
-                
-                required_months.append((y_int, m_int)) # Always add the current month
-                
-                # Filter days to ONLY this specific month
-                days_this_month = [
-                    pd.to_datetime(f['days'][d].attrs['noon_utc']) 
-                    for d in f['days'].keys() 
-                    if int(f['days'][d].attrs['month']) == m_int
-                ]
-                
-                # If fire is on Day 1, add the PREVIOUS month for the 24h rolling window
-                if any(d.day == 1 for d in days_this_month):
-                    prev = datetime(y_int, m_int, 1) - relativedelta(months=1)
-                    required_months.append((prev.year, prev.month))
-                
-                # If fire is on the Last Day, add the NEXT month for end_utc logic
-                last_day_of_month = calendar.monthrange(y_int, m_int)[1]
-                if any(d.day == last_day_of_month for d in days_this_month):
-                    nxt = datetime(y_int, m_int, 1) + relativedelta(months=1)
-                    required_months.append((nxt.year, nxt.month))
-    
-            # Deduplicate and sort
-            required_months = sorted(list(set(required_months)))
-    
-            # fetch NCS
-            required_ncs = []
-            
-            for y, m in required_months:
-                nc_path = Path(era5_base_folder) / f"ERA5_LAND_{y}_{m}.nc"
-                if nc_path.exists(): 
-                    required_ncs.append(nc_path)
-    
-            print(f'Found {len(required_ncs)} nc files.')
-
-            if not required_ncs:
-                print(f"No NC file found for {h5_path.name}, skipping.")
-                continue
-
-            # Open and Process ERA5
-            ds = xr.open_mfdataset(required_ncs, engine="h5netcdf", parallel=True)
-            
-            # Only load the box surrounding the fire with a buffer
-            buffer = 0.1
-            ds = ds.sel(latitude=slice(lat_grid.max() + buffer, lat_grid.min() - buffer),
-                        longitude=slice(lon_grid.min() - buffer, lon_grid.max() + buffer))
-
-            ds_indexed = fast_deduplicate_by_data(ds)
-            print(f'Deduplicated.')
-
-            # Rolling calculations
-            tp_prev = ds_indexed['tp'].shift(valid_time=1)
-            ds_indexed['tp_hourly'] = xr.where(
-                (ds_indexed.valid_time.dt.hour == 1) | ((ds_indexed['tp'] - tp_prev) < -1e-7),
-                ds_indexed['tp'],
-                ds_indexed['tp'] - tp_prev
-            )
-            ds_indexed['t2m_24h_max'] = ds_indexed['t2m'].rolling(valid_time=24).max()
-            ds_indexed['tp_24h_sum'] = ds_indexed['tp_hourly'].rolling(valid_time=24).sum()
-            print(f'Temp and Prec calculated.')
-
-            # Trigger the calculations
-            print("Loading ERA5 slice into RAM...")
-            start_bake = time.time()
-            ds_indexed = ds_indexed.compute()
-            print(f"Loading done in {time.time() - start_bake:.2f}s")
-
-            # Save to H5
-            for day_key in sorted(days_grp.keys()):
-                
-                day_grp = days_grp[day_key]
-                day_attrs = dict(day_grp.attrs)
-                
-                # Process the theoretical Grid
-                weather_v2 = process_era5_grid(ds_indexed, lon_grid, lat_grid, day_attrs)
-                
-                env_grp = day_grp['features']
-                
-                # Save
-                for weather_dict in [weather_v2]:
-                    for var_name, grid_data in weather_dict.items():
-                        if var_name in env_grp:
-                            env_grp[var_name][...] = grid_data
-                        else:
-                            env_grp.create_dataset(var_name, data=grid_data, compression="gzip")
-            
-            ds.close()
-            ds_indexed.close()
-            del ds, ds_indexed
-            import gc
-            gc.collect()
-            
-            print(f"Successfully processed {h5_path.name}")
-
 def run_single_h5_era5_pipeline(h5_path, era5_base_folder):
     """
-    Processes ERA5 weather data for a single H5 fire file.
+    Processes ERA5 weather data for a single H5 fire file using the Tile-Based architecture.
     """
     h5_path = Path(h5_path)
     if not h5_path.exists():
@@ -224,40 +95,67 @@ def run_single_h5_era5_pipeline(h5_path, era5_base_folder):
     print(f"\n{'='*60}\nProcessing Single Fire H5: {h5_path.name}...")
 
     with h5py.File(h5_path, "a") as f:
-        # Get Geometry and Time Info
-        lon_grid = f['geometry/theoretical_lon'][:]
-        lat_grid = f['geometry/theoretical_lat'][:]
-        fire_id = f.attrs['fire_id']
-        y_int = int(f.attrs['year'])
-        days_grp = f['days']
+        fire_id = f.attrs.get('fire_id', 'Unknown')
+        y_int = int(f.attrs.get('year', 0))
         
-        # Determine unique months and buffer months (prev/next)
-        unique_months = sorted(set(int(days_grp[d].attrs['month']) for d in days_grp.keys()))
+        # Identify all tile groups
+        tile_ids = [k for k in f.keys() if k.startswith('tile_')]
+        if not tile_ids:
+            print("No tiles found in this H5 file. Skipping.")
+            return
+
+        # ==========================================
+        # STEP 1: First Pass - Find Global Bounds & Dates
+        # ==========================================
+        global_lon_min, global_lon_max = float('inf'), float('-inf')
+        global_lat_min, global_lat_max = float('inf'), float('-inf')
         
+        all_noon_utcs = []
+
+        for tile_id in tile_ids:
+            # Update Bounding Box across all tiles
+            lon_grid = f[f"{tile_id}/coords/theoretical_lon"][:]
+            lat_grid = f[f"{tile_id}/coords/theoretical_lat"][:]
+            
+            global_lon_min = min(global_lon_min, lon_grid.min())
+            global_lon_max = max(global_lon_max, lon_grid.max())
+            global_lat_min = min(global_lat_min, lat_grid.min())
+            global_lat_max = max(global_lat_max, lat_grid.max())
+            
+            # Collect all active days to figure out which months we need
+            days_grp = f[f"{tile_id}/days"]
+            for d in days_grp.keys():
+                noon_str = days_grp[d].attrs.get('noon_utc')
+                if noon_str and noon_str != "N/A":
+                    all_noon_utcs.append(pd.to_datetime(noon_str))
+
+        if not all_noon_utcs:
+            print("No valid days found across tiles. Skipping.")
+            return
+
+        # Calculate Required ERA5 Months based on all dates across the whole fire
         required_months = []
+        unique_months = sorted(list(set(dt.month for dt in all_noon_utcs)))
+        
         for m_int in unique_months:
             required_months.append((y_int, m_int))
+            days_this_month = [dt for dt in all_noon_utcs if dt.month == m_int]
             
-            # Filter days to ONLY this specific month to check boundaries
-            days_this_month = [
-                pd.to_datetime(days_grp[d].attrs['noon_utc']) 
-                for d in days_grp.keys() 
-                if int(days_grp[d].attrs['month']) == m_int
-            ]
-            
-            # Handle rolling window overlaps
-            if any(d.day == 1 for d in days_this_month):
+            # Rolling window logic: Add previous/next months if near boundaries
+            if any(dt.day == 1 for dt in days_this_month):
                 prev = datetime(y_int, m_int, 1) - relativedelta(months=1)
                 required_months.append((prev.year, prev.month))
-            
-            last_day_of_month = calendar.monthrange(y_int, m_int)[1]
-            if any(d.day == last_day_of_month for d in days_this_month):
+                
+            last_day = calendar.monthrange(y_int, m_int)[1]
+            if any(dt.day == last_day for dt in days_this_month):
                 nxt = datetime(y_int, m_int, 1) + relativedelta(months=1)
                 required_months.append((nxt.year, nxt.month))
 
         required_months = sorted(list(set(required_months)))
 
-        # Locate NC files
+        # ==========================================
+        # STEP 2: Load and Compute ERA5 Chunk
+        # ==========================================
         required_ncs = []
         for y, m in required_months:
             nc_path = Path(era5_base_folder) / f"ERA5_LAND_{y}_{m}.nc"
@@ -268,19 +166,17 @@ def run_single_h5_era5_pipeline(h5_path, era5_base_folder):
             print(f"No NC files found for {h5_path.name}, skipping.")
             return
 
-        # Open and Process ERA5 with xarray
-        # parallel=True helps if you have multiple CPUs assigned in Slurm
+        print(f"Loading {len(required_ncs)} ERA5 files into RAM for global bounding box...")
         ds = xr.open_mfdataset(required_ncs, engine="h5netcdf", parallel=True)
         
-        # Spatial Subset (Bounding Box + Buffer)
+        # Subset using the absolute min/max across ALL tiles
         buffer = 0.1
-        ds = ds.sel(latitude=slice(lat_grid.max() + buffer, lat_grid.min() - buffer),
-                    longitude=slice(lon_grid.min() - buffer, lon_grid.max() + buffer))
+        ds = ds.sel(latitude=slice(global_lat_max + buffer, global_lat_min - buffer),
+                    longitude=slice(global_lon_min - buffer, global_lon_max + buffer))
 
-        # Helper function (assumed to be in your environment)
         ds_indexed = fast_deduplicate_by_data(ds)
 
-        # Feature Engineering
+        # Feature Engineering (Rolling)
         tp_prev = ds_indexed['tp'].shift(valid_time=1)
         ds_indexed['tp_hourly'] = xr.where(
             (ds_indexed.valid_time.dt.hour == 1) | ((ds_indexed['tp'] - tp_prev) < -1e-7),
@@ -290,23 +186,38 @@ def run_single_h5_era5_pipeline(h5_path, era5_base_folder):
         ds_indexed['t2m_24h_max'] = ds_indexed['t2m'].rolling(valid_time=24).max()
         ds_indexed['tp_24h_sum'] = ds_indexed['tp_hourly'].rolling(valid_time=24).sum()
 
-        # Compute and Save
-        print("Loading ERA5 slice into RAM...")
+        start_bake = time.time()
         ds_indexed = ds_indexed.compute()
+        print(f"ERA5 loaded to RAM in {time.time() - start_bake:.2f}s")
 
-        for day_key in sorted(days_grp.keys()):
-            day_grp = days_grp[day_key]
-            day_attrs = dict(day_grp.attrs)
+        # ==========================================
+        # STEP 3: Write Weather Data into Each Tile
+        # ==========================================
+        for tile_id in tile_ids:
+            # Grab this specific tile's theoretical coordinates
+            tile_lon = f[f"{tile_id}/coords/theoretical_lon"][:]
+            tile_lat = f[f"{tile_id}/coords/theoretical_lat"][:]
             
-            # Interpolate ERA5 to your fire grid
-            weather_v2 = process_era5_grid(ds_indexed, lon_grid, lat_grid, day_attrs)
+            days_grp = f[f"{tile_id}/days"]
             
-            env_grp = day_grp['features']
-            for var_name, grid_data in weather_v2.items():
-                if var_name in env_grp:
-                    env_grp[var_name][...] = grid_data
-                else:
-                    env_grp.create_dataset(var_name, data=grid_data, compression="gzip")
+            for day_key in sorted(days_grp.keys()):
+                day_grp = days_grp[day_key]
+                day_attrs = dict(day_grp.attrs)
+                
+                # Check for valid dates
+                if day_attrs.get('noon_utc') == "N/A":
+                    continue
+                
+                # Interpolate from RAM using the tile-specific grid
+                weather_dict = process_era5_grid(ds_indexed, tile_lon, tile_lat, day_attrs)
+                
+                # Save into the new Features group
+                env_grp = day_grp['features']
+                for var_name, grid_data in weather_dict.items():
+                    if var_name in env_grp:
+                        env_grp[var_name][...] = grid_data
+                    else:
+                        env_grp.create_dataset(var_name, data=grid_data, compression="gzip")
         
         # Cleanup
         ds.close()

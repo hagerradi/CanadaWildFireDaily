@@ -1,6 +1,4 @@
 from pathlib import Path
-from tqdm import tqdm
-import time
 import numpy as np
 import rioxarray
 import xarray as xr
@@ -48,62 +46,10 @@ def extract_scanfi_for_grid(tif_path, lon_grid, lat_grid):
         
         return sampled.values
     
-def run_static_scanfi_pipeline(h5_folder, scanfi_folder, current_year="2020"):
-    
-    h5_files = list(Path(h5_folder).glob("*.h5"))
-    
-    year_folder = Path(scanfi_folder) / current_year
-    
-    for h5_path in tqdm(h5_files):
-            
-        print(f"\n{'='*60}\nProcessing Static SCANFI for: {h5_path.name}")
-
-        start_scanfi = time.time()
-        
-        with h5py.File(h5_path, "a") as f:
-            
-            # Get coordinates
-            lon_grid = f['geometry/theoretical_lon'][:]
-            lat_grid = f['geometry/theoretical_lat'][:]
-
-            fire_id = f.attrs['fire_id']
-            
-            # Create static features bloc if not existing
-            if 'static_features' not in f:
-                static_grp = f.create_group('static_features')
-            else:
-                static_grp = f['static_features']
-            
-            # Loop on SCANFI variables
-            for key, file_prefix in SCANFI_VARS.items():
-                
-                var_name = key.lower()  # e.g., 'biomass'
-                
-                # Fetch the SCANFI rasters
-                matching_files = list(year_folder.glob(f"*{file_prefix}*_90m_v2.tif"))
-                
-                if not matching_files:
-                    print(f"Skipping {var_name}: No TIF found matching '{file_prefix}'.")
-                    continue
-                
-                tif_path = matching_files[0]
-                    
-                print(f"Extracting {var_name} from {tif_path.name}...")
-                
-                # Fetch the 2D array
-                grid_data = extract_scanfi_for_grid(tif_path, lon_grid, lat_grid)
-
-                #### TEMP
-                grid_data = np.nan_to_num(grid_data, nan=0.0)
-                
-                # Save to HDF5
-                static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
-                
-                print(f"Saved {var_name}.")
-
 def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
     """
-    Processes SCANFI fuel data for a single H5 fire file.
+    Tile-Based Architecture.
+    Processes static SCANFI fuel data and stores it inside each individual tile.
     """
     h5_path = Path(h5_path)
     if not h5_path.exists():
@@ -112,47 +58,50 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
     
     year_folder = Path(scanfi_folder) / current_year
     
-    print(f"\n{'='*60}\nProcessing Static SCANFI for: {h5_path.name}")
+    print(f"\n{'='*60}\nRunning Tile-Based SCANFI Pipeline: {h5_path.name}")
 
     with h5py.File(h5_path, "a") as f:
-        # Get coordinates from the fire-specific grid
-        lon_grid = f['geometry/theoretical_lon'][:]
-        lat_grid = f['geometry/theoretical_lat'][:]
-        fire_id = f.attrs.get('fire_id', h5_path.stem)
-
-        # Create static features group if not existing
-        if 'static_features' not in f:
-            static_grp = f.create_group('static_features')
-        else:
-            static_grp = f['static_features']
+        # Identify all tiles in the file
+        tile_ids = [k for k in f.keys() if k.startswith('tile_')]
         
-        # Loop on SCANFI variables (Biomass, etc.)
+        if not tile_ids:
+            print("No tiles found in this H5 file. Skipping.")
+            return
+
+        # Loop through the SCANFI variables first to minimize opening/closing the large TIFs
         for key, file_prefix in SCANFI_VARS.items():
             var_name = key.lower()
             
             # Find the specific TIF for this variable
             matching_files = list(year_folder.glob(f"*{file_prefix}*_90m_v2.tif"))
-            
             if not matching_files:
-                print(f"Skipping {var_name}: No TIF found matching '{file_prefix}' in {year_folder}.")
+                print(f"Skipping {var_name}: No TIF found for '{file_prefix}' in {year_folder}.")
                 continue
             
             tif_path = matching_files[0]
-            
-            # If the dataset already exists in this fire file, we overwrite/re-create it
-            if var_name in static_grp:
-                del static_grp[var_name]
+            print(f"--- Extracting {var_name} from {tif_path.name} ---")
+
+            # Process every tile for this specific variable
+            for tid in tile_ids:
+                # Navigate to (or create) the tile's static_features group
+                tile_grp = f[tid]
+                if 'static_features' not in tile_grp:
+                    static_grp = tile_grp.create_group('static_features')
+                else:
+                    static_grp = tile_grp['static_features']
+
+                # Get this specific tile's coordinates
+                lon_grid = tile_grp['coords/theoretical_lon'][:]
+                lat_grid = tile_grp['coords/theoretical_lat'][:]
+
+                # Extract the 2D array for this tile's window
+                grid_data = extract_scanfi_for_grid(tif_path, lon_grid, lat_grid)
+                grid_data = np.nan_to_num(grid_data, nan=0.0)
+
+                # Save to HDF5 (Overwrite if exists)
+                if var_name in static_grp:
+                    del static_grp[var_name]
                 
-            print(f"Extracting {var_name} from {tif_path.name}...")
-            
-            # Fetch the 2D array
-            grid_data = extract_scanfi_for_grid(tif_path, lon_grid, lat_grid)
+                static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
 
-            #### TEMP
-            grid_data = np.nan_to_num(grid_data, nan=0.0)
-            
-            # 5. Save to HDF5
-            static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
-            print(f"Saved {var_name}.")
-
-    print(f"Successfully processed SCANFI for {h5_path.name}")
+    print(f"Successfully processed all SCANFI tiles for {h5_path.name}")
