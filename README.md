@@ -238,12 +238,16 @@ This script queries the Microsoft Planetary Computer to download Sentinel-2 mult
 
 **Option A: Local Execution**
 ```bash
+cd /path/to/your/PROJECT_FOLDER/
+
 python -m data_preparation.satellite_generation.satellite_main 2024 \
   --mode local
 ```
 
 **Option B: Distributed Execution (SLURM Cluster)**
 ```bash
+cd /path/to/your/PROJECT_FOLDER/
+
 python -m data_preparation.satellite_generation.satellite_main 2024 \
   --mode distributed \
   --task-id $SLURM_ARRAY_TASK_ID
