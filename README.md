@@ -299,19 +299,29 @@ With the `.h5` dataset prepared, the model is ready to train.
 All training hyperparameters, hardware settings, and logging preferences are centralized in `configs/default.yaml`. Before training, you can adjust this file to suit your needs.
 
 ### 5.2 Model Selection & Customization
-Multiple model architectures are implemented in the `src/models/` directory:
-1. **`UNet`**: Standard baseline Spatial UNet.
-2. **`SpatiotemporalUNet`**: UNet with a **ConvLSTM** bottleneck for recurrent time-series processing.
-3. *(More to be added ...)*
+Multiple model architectures are implemented in the `src/models/` directory to handle different temporal and spatial requirements. 
 
-To switch between architectures or dataloaders (e.g., swapping from single-day static prediction to 3-day sliding window forecasting), open `src/train.py` and comment/uncomment the respective dataloader and model initializations. 
+To switch between architectures (which will automatically configure the corresponding dataloaders, such as swapping from single-day static prediction to a 3-day sliding window), open your `configs/default.yaml` and update the `architecture` parameter under the `model` section to one of the following options:
+
+1. **Standard UNet** (`architecture: 'unet'`): 
+   The baseline spatial U-Net model.
+2. **Age-Encoding UNet** (`architecture: 'unet_age'`): 
+   A U-Net that explicitly encodes the satellite age (the time gap in days between the fire event and the satellite acquisition).
+3. **Spatiotemporal UNet** (`architecture: 'unet_convlstm'`): 
+   A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
+4. **Attention UNet** (`architecture: 'unet_attention'`): 
+   A U-Net utilizing attention gates in the skip connections to help the model focus on the most critical spatial features and suppress irrelevant background noise.
+5. **UNet-SegFormer** (`architecture: 'unet_segformer'`): 
+   A hybrid vision-transformer architecture that replaces the standard CNN encoder with SegFormer's Mix Vision Transformer (MiT), paired with a standard U-Net decoder for heavy pixel-level accuracy. 
 
 ### 5.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
 
 To run the training loop locally:
 ```bash
-python main.py --config configs/default.yaml
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m main --config configs/default.yaml
 ```
 
 **Key Training Features:**
