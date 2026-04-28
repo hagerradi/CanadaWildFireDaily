@@ -162,16 +162,35 @@ gdalbuildvrt dem_mosaic.vrt DEM_Tiles/*.tif
 ```
 
 ### 3.2 Generate the Fire Topography
-Now, navigate back to your PROJECT_FOLDER (the root of this repository) to run the GDAL generation script. You must pass the target year as an argument.
+Now, navigate back to your `PROJECT_FOLDER` (the root of this repository) to run the GDAL generation script. This step processes the raw topographical data (elevation, slope, aspect) for your fires and **must be completed before generating the final grid files**.
 
+You can run this script either locally on your machine or distributed across a cluster.
+
+**Option A: Local Execution (Single Machine)**
+Ideal for testing or processing a small subset of data. This mode processes the topography for the fires sequentially on your current machine.
 ```bash
 cd /path/to/your/PROJECT_FOLDER/
 
-# Run the GDAL pipeline for a specific year
-python -m data_preparation.raw_data_preprocessing.topography_rasters_main 2024
+python -m data_preparation.raw_data_preprocessing.topography_rasters_main 2024 \
+  --mode local
 ```
 
-**Note:** You must run this command for all target years in your dataset (e.g., 2020, 2021, 2022, 2023, 2024).
+**Option B: Distributed Execution (SLURM Cluster)**
+Ideal for processing entire years. This uses SLURM array task IDs to process the heavy GDAL raster operations in parallel.
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.raw_data_preprocessing.topography_rasters_main 2024 \
+  --mode distributed \
+  --task-id $SLURM_ARRAY_TASK_ID
+```
+
+### Parameters Explained
+* **`YEAR` (Positional):** The target year to process (e.g., `2024`). You must run this command for **all target years** in your dataset independently (e.g., 2020 through 2024).
+* **`--mode`:** 
+  * `local`: Runs sequentially on your current machine.
+  * `distributed`: Tells the script to look for a specific subset of fires based on the `--task-id`, allowing hundreds of nodes to process the dataset simultaneously without overlapping.
+* **`--task-id`:** Required if using `--mode distributed`. It maps to your cluster's job array index (e.g., `$SLURM_ARRAY_TASK_ID`), determining exactly which topographical chunk the current job is responsible for.
 
 ---
 
@@ -187,6 +206,8 @@ You can run the script either locally on your machine or distributed across a cl
 **Option A: Local Execution (Single Machine)**
 Ideal for testing or processing a small subset of data. This mode processes the fires sequentially on your current machine.
 ```bash
+cd /path/to/your/PROJECT_FOLDER/
+
 python -m data_preparation.features_generation.grid_main 2024 \
   --mode local
 ```
@@ -194,6 +215,8 @@ python -m data_preparation.features_generation.grid_main 2024 \
 **Option B: Distributed Execution (SLURM Cluster)**
 Ideal for processing entire years. This uses SLURM array task IDs to process multiple chunks of fires in parallel.
 ```bash
+cd /path/to/your/PROJECT_FOLDER/
+
 python -m data_preparation.features_generation.grid_main 2024 \
   --mode distributed \
   --task-id $SLURM_ARRAY_TASK_ID \
@@ -210,18 +233,28 @@ python -m data_preparation.features_generation.grid_main 2024 \
 
 
 ### 4.2 Satellite Generation (Sentinel-2 Imagery)
-This script queries the Microsoft Planetary Computer to download Sentinel-2 multispectral imagery (B01-B12) that aligns spatially and temporally with the grids generated in 4.1. It directly appends the new `satellite/` group and Cloud Cover statistics into the existing `.h5` files.
 
-Run the script by providing the target year and the optional filter list:
+This script queries the Microsoft Planetary Computer to download Sentinel-2 multispectral imagery (B02, B03, B04, B06, B11, B12) that aligns spatially and temporally with the grids generated in the previous step. It directly appends the new `satellite/` group and Cloud Cover statistics into your existing `.h5` files.
+
+**Option A: Local Execution**
 ```bash
-python -m data_preparation.satellite_generation.satellite_main 2024 /path/to/fire_ids_256_5_years.npy
+python -m data_preparation.satellite_generation.satellite_main 2024 \
+  --mode local
 ```
 
+**Option B: Distributed Execution (SLURM Cluster)**
+```bash
+python -m data_preparation.satellite_generation.satellite_main 2024 \
+  --mode distributed \
+  --task-id $SLURM_ARRAY_TASK_ID
+```
+*(Note: The `YEAR`, `--mode`, and `--task-id` parameters function exactly as described in the previous sections).*
+
 **Key Execution Notes:**
-* **Parallel Execution (1 Fire per Job):** We highly recommend launching this step via a SLURM job array, allocating exactly **one fire per parallel job**. This maximizes download throughput.
-* **API Throttling & Fault Tolerance:** Because we are sending thousands of requests to the Planetary Computer STAC API, connections can occasionally be throttled, dropped, or timed out. 
+* **Parallel Execution (1 Fire per Job):** When running on a cluster, we highly recommend allocating exactly **one fire per parallel job** (no chunking). This maximizes download throughput and isolates API failures.
+* **API Throttling & Fault Tolerance:** Because the script sends thousands of requests to the Planetary Computer STAC API, connections can occasionally be throttled, dropped, or timed out. 
 * **Resumability (Status Tracking):** To handle dropped connections, the script uses a marker system. It writes empty trace files (`success_{fire_id}.txt` or `fail_{fire_id}.txt`) to the `SATELLITE_STATUS_FOLDER`. 
-  * If your pipeline crashes or times out due to API limits, you can simply re-run the exact same SLURM script. The code will instantly bypass successful fires, delete the fail flags of the broken ones, and retry the downloads automatically.
+  * If your pipeline crashes or times out due to API limits, you can simply **re-run the exact same command**. The code will instantly bypass successful fires, delete the fail flags of the broken ones, and retry the downloads automatically.
 
 
 ### 4.3 Quality Control & Diagnosis
@@ -229,6 +262,8 @@ Wildfire datasets rely on overlapping multiple different data sources, which can
 
 Run the diagnosis script:
 ```bash
+cd /path/to/your/PROJECT_FOLDER/
+
 python -m data_preparation.diagnosis.quality_diagnosis
 ```
 
@@ -236,6 +271,23 @@ python -m data_preparation.diagnosis.quality_diagnosis
 * **Dynamic Mask Injection:** If a specific day contains any corrupted or missing data, the script generates and embeds a binary `quality_mask` (where `1 = bad pixel`) directly into that day's group within the `.h5` file.
 * **Storage Efficiency:** To save disk space, perfectly clean days do not receive a mask. The PyTorch Dataloader is programmed to assume a day is perfectly clean unless it finds a `quality_mask` present.
 * **Model Integration:** During training, the samples builder will automatically detect these `quality_mask` flags and skip corrupted days, ensuring the model is only fed complete data.
+
+### 4.4 Tile Mapper Generation (Metadata)
+
+This script scans the fires (from the dataframes) and builds a mapping dictionary (`tile_dob_mapper_{year}.json`). It groups together any individual fires that share the exact same 256x256 grid tile on the exact same Day of Burn (DOB). 
+
+This metadata is critical for the dataloader. It allows the pipeline to safely merge overlapping fire masks into a single "Super-Fire" environment, preventing spatial data leakage between the training and testing sets.
+
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.metadata_generation.tile_mapper 2024
+```
+*(Note: Unlike previous steps, this script is very fast and runs locally in a single pass without needing SLURM distribution.)*
+
+**Key Execution Notes:**
+* **Output Location:** The resulting JSON files are saved directly into your `fires_metadata/` folder.
+* **Pre-Computed Files Provided:** We have already provided the generated mapper files for **2020 through 2024** directly in this repository! You **do not** need to run this script unless you are processing brand new years or modifying the spatial grid parameters.
 
 ---
 
