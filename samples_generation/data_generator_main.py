@@ -1,0 +1,38 @@
+import argparse
+
+from src.config import Config
+from samples_generation.data_generator import generate_simple_offline_data
+from samples_generation.data_generator_timeseries import generate_timeseries_offline_data
+
+def main():
+    parser = argparse.ArgumentParser(description="Offline Data Generator for Wildfire Preprocessing")
+    
+    parser.add_argument(
+        "--type", 
+        type=str, 
+        required=True, 
+        choices=["simple", "timeseries"],
+        help="Choose which dataset type to generate: 'simple' or 'timeseries'"
+    )
+    
+    parser.add_argument(
+        "--config", 
+        type=str, 
+        default="configs/default.yaml", 
+        help="Path to YAML config file."
+    )
+    
+    args = parser.parse_args()
+    config = Config.from_yaml(args.config)
+
+    if args.type == "simple":
+        print("Starting offline data generation for SIMPLE dataset...")
+        generate_simple_offline_data(config)
+        
+    elif args.type == "timeseries":
+        print("Starting offline data generation for TIME-SERIES dataset...")
+        generate_timeseries_offline_data(config, seq_length=3)
+
+
+if __name__ == "__main__":
+    main()

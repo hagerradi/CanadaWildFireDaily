@@ -77,8 +77,7 @@ def train(config: Config) -> None:
         )
 
     elif mc.architecture == 'unet_convlstm':
-        train_loader, val_loader, test_loader = get_timeseries_dataloaders(config, 
-                                                            seq_length=3)
+        train_loader, val_loader, test_loader = get_timeseries_dataloaders(config)
         model = unet_convlstm.SpatiotemporalUNet(
             input_channels=mc.input_channels,
             num_classes=mc.num_classes,
