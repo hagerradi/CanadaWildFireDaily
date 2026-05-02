@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import os
+import uuid
 
 from src.trainer import Trainer
 
@@ -184,7 +185,9 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                         fig.colorbar(im, ax=axes[3], fraction=0.046, pad=0.04)
                         
                         # Save, log to Comet, and clean up
-                        temp_img = f"test_vis_{images_logged}.png"
+                        # temp_img = f"test_vis_{images_logged}.png"
+                        random_id = uuid.uuid4().hex[:6]
+                        temp_img = f"test_vis_{images_logged}_{random_id}.png"
                         plt.savefig(temp_img, bbox_inches='tight')
                         plt.close(fig)
                         

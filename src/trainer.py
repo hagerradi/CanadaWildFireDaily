@@ -26,6 +26,7 @@ from torchmetrics.classification import (
 )
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import uuid
 
 from src.config import TrainingConfig
 
@@ -298,7 +299,9 @@ class Trainer:
                         axes[1].set_title(f"Prediction (Epoch {epoch})")
                         axes[1].axis('off')
                         
-                        temp_img_path = f"temp_val_epoch_{epoch}.png"
+                        # temp_img_path = f"temp_val_epoch_{epoch}.png"
+                        random_id = uuid.uuid4().hex[:6]
+                        temp_img_path = f"temp_val_epoch_{epoch}_{random_id}.png"
                         plt.savefig(temp_img_path, bbox_inches='tight')
                         plt.close(fig)
                         
