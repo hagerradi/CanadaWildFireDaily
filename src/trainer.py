@@ -167,42 +167,9 @@ class Trainer:
             else:
                 predictions = self.model(images)
 
-            # ==============================================================
-            # THE LOSS DIAGNOSTIC BLOCK
-            # ==============================================================
-            if batch_idx == 0:
-                print("\n" + "="*40)
-                print("DIAGNOSTIC REPORT - BATCH 0 🚨")
-                print("="*40)
-                
-                # SHAPE CHECK
-                print(f"Predictions Shape: {predictions.shape}")
-                print(f"Masks Shape:       {masks.shape}")
-                
-                # TARGET MASK HEALTH
-                # How many pixels are actually fires in this batch?
-                total_pixels = masks.numel()
-                fire_pixels = (masks > 0).sum().item()
-                print(f"Total Target Pixels: {total_pixels}")
-                print(f"Fire Target Pixels:  {fire_pixels} ({(fire_pixels/total_pixels)*100:.4f}%)")
-                
-                # INPUT HEALTH (The Poison Trap)
-                print(f"Images Min/Max:      {images.min().item():.4f} / {images.max().item():.4f}")
-                print(f"Images NaNs?:        {torch.isnan(images).any().item()}")
-                
-                # PREDICTION HEALTH (The Sigmoid Trap)
-                print(f"Preds Min/Max:       {predictions.min().item():.4f} / {predictions.max().item():.4f}")
-                
-                print("="*40 + "\n")
-                # import sys; sys.exit() # Force stop to read the report
-            # ==============================================================
-
-
             loss: Tensor = self.loss_fn(predictions, masks)
                 
             loss.backward()
-
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             
             self.optimizer.step()
 
