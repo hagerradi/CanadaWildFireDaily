@@ -8,9 +8,9 @@ from skimage import morphology
 class DailyFireDataset(Dataset):
     def __init__(self, data_dir: str, return_sat_age: bool = False):
         """
-        data_dir: Path to the specific split folder (e.g., settings.SAMPLE_FOLDER + "/train")
-        return_sat_age: Toggle to return the delta_t float alongside x and y.
+            data_dir: Path to the specific split folder (e.g., settings.SAMPLE_FOLDER + "/train")
         """
+        
         self.data_dir = data_dir
         self.return_sat_age = return_sat_age
         
@@ -26,20 +26,14 @@ class DailyFireDataset(Dataset):
         # Load the pre-computed tensor dictionary from the hard drive
         data = torch.load(file_path, weights_only=True)
 
-        # =========================================================
         # APPYING MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
-        # =========================================================
         y_tensor = data['y']
-        
         # Convert to boolean numpy array
         y_np = y_tensor.numpy() > 0 
-        
         # Fill the 1-pixel projection gaps safely
         y_filled_np = morphology.remove_small_holes(y_np, area_threshold=1)
-        
         # Convert back to PyTorch tensor and match the original data type
         data['y'] = torch.from_numpy(y_filled_np).to(y_tensor.dtype)
-        # =========================================================
         
         if self.return_sat_age:
             return data['x'], data['y'], data['delta_t']
@@ -48,8 +42,14 @@ class DailyFireDataset(Dataset):
 
 
 def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataLoader, DataLoader]:
-    """
-    Instantiates the offline datasets and wraps them in PyTorch DataLoaders.
+    """Instantiates the offline datasets and wraps them in PyTorch DataLoaders.
+
+    Args:
+      config: Config: config parameters
+      is_sat_age: bool: toggle to choose if the satellite age gap is included in the sample
+
+    Returns: the train, val, and test loaders
+
     """
     tc = config.training
     
@@ -69,7 +69,7 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
     print(f'Number of offline validation samples :: {len(val_dataset)}')
     print(f'Number of offline test samples       :: {len(test_dataset)}')
 
-    # 3. Wrap them in DataLoaders
+    # Wrap them in DataLoaders
     train_loader = DataLoader(
         train_dataset, 
         batch_size=tc.batch_size, 

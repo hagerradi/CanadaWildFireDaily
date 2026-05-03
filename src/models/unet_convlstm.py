@@ -5,6 +5,14 @@ from src.models.convlstm import ConvLSTM
 
 class SpatiotemporalUNet(nn.Module):
     def __init__(self, input_channels: int = 20, num_classes: int = 1, hidden_features: list = None, use_skip_connections: bool = True):
+        """_summary_
+
+        Args:
+            input_channels: the number of input channels Defaults to 20.
+            num_classes: the number of classification classes. Defaults to 1.
+            hidden_features: the number of hidden features. Defaults to None.
+            use_skip_connections: toggle to activate skip connections. Defaults to True.
+        """
         super().__init__()
         
         if hidden_features is None:

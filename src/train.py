@@ -24,6 +24,7 @@ from src.dice_loss import DiceLoss
 from src.logger import CometLogger
 
 class CombinedLoss(nn.Module):
+    """Calculates a weighted combination of Focal Loss and Dice Loss for segmentation."""
     def __init__(self, alpha=0.75, gamma=2.0, dice_weight=1.0, focal_weight=1.0):
         super(CombinedLoss, self).__init__()
         self.focal = FocalLoss(alpha=alpha, gamma=gamma)
@@ -34,6 +35,15 @@ class CombinedLoss(nn.Module):
         self.focal_weight = focal_weight
 
     def forward(self, inputs, targets):
+        """Computes the combined Focal and Dice loss.
+
+        Args:
+            inputs: The predicted logits from the model.
+            targets: The ground truth target masks.
+
+        Returns:
+            The scalar tensor containing the final weighted loss.
+        """
         if targets.dim() == 3:
             targets = targets.unsqueeze(1).float()
             
@@ -43,10 +53,20 @@ class CombinedLoss(nn.Module):
         return (self.focal_weight * focal_l) + (self.dice_weight * dice_l)
 
 def train(config: Config) -> None:
-    """Set up all components and run the training loop.
+    """Sets up all components and executes the model training loop.
+
+    Initializes the dataloaders, model architecture, optimizer, schedulers, 
+    and loss functions based on the provided configuration. Starts the 
+    training process using the Trainer class and handles optional CometML logging.
 
     Args:
-        config: Global configuration object.
+        config (Config): The global configuration object containing all hyperparameters 
+            for the model, training loop, and logging.
+
+    Returns:
+        tuple: A tuple containing:
+            - trainer (Trainer): The trainer instance after the training loop completes.
+            - test_loader (DataLoader): The dataloader containing the test set split.
     """
     # Fix all random seeds (CPU, CUDA, CuDNN, Python)
     seed_everything(config.seed)

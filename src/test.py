@@ -14,12 +14,13 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
     """Load a checkpoint and evaluate on the test split.
 
     Args:
-        config: Global configuration object.
-        checkpoint_path: Path to the model checkpoint file.
-        test_loader: DataLoader containing the test dataset.
+      trainer: Trainer used to train the model.
+      checkpoint_path: Path to the model checkpoint file.
+      test_loader: DataLoader containing the test dataset.
 
     Returns:
-        Average test loss.
+      : Average test loss.
+
     """
     
     epoch = trainer.load_checkpoint(checkpoint_path)
