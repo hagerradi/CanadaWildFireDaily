@@ -317,6 +317,8 @@ To switch between architectures (which will automatically configure the correspo
    A U-Net utilizing attention gates in the skip connections to help the model focus on the most critical spatial features and suppress irrelevant background noise.
 5. **UNet-SegFormer** (`architecture: 'unet_segformer'`): 
    A hybrid vision-transformer architecture that replaces the standard CNN encoder with SegFormer's Mix Vision Transformer (MiT), paired with a standard U-Net decoder for heavy pixel-level accuracy. 
+6. **UT-AE** (`architecture: 'utae'`):
+   A temporal attention encoder-decoder baseline adapted from the ICCV 2021 U-TAE model for satellite image time series. This baseline uses the time-series offline samples from `Timeseries_Samples/`, and the generator now stores sequence positions for the temporal attention encoder when you regenerate those samples.
 
 ### 5.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
