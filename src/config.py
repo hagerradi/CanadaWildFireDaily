@@ -23,6 +23,14 @@ class ModelConfig:
     use_skip_connections: bool = True
     use_activation_after_upsampling: bool = False
     architecture: str = "unet"
+    utae_decoder_widths: list[int] | None = None
+    utae_out_conv_channels: list[int] = field(default_factory=lambda: [32])
+    utae_agg_mode: str = "att_group"
+    utae_encoder_norm: str = "group"
+    utae_n_head: int = 16
+    utae_d_model: int = 256
+    utae_d_k: int = 4
+    utae_pad_value: float = 0.0
 
 
 @dataclass
