@@ -4,9 +4,13 @@ import h5py
 import time
 
 def run_static_topography_pipeline(h5_path, dem_folders_dict, base_res=90):
-    """
-    Reads the perfectly pre-cropped tile TIFFs and saves them directly 
+    """Reads the perfectly pre-cropped tile TIFFs and saves them directly
     into the tile's static_features group.
+
+    Args:
+      h5_path: the fire's H5 file path
+      dem_folders_dict: the directory mapping each topography feature to the folder containing its TIFFs
+      base_res:  the target resolution in meters (Default value = 90)
     """
     h5_path = Path(h5_path)
     print(f"\n{'='*60}\nRunning Tile-Based Topography for: {h5_path.name}")

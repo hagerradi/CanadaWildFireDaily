@@ -14,9 +14,18 @@ def generate_tile_terrain(
     base_res=90,
     grid_size=256
 ):
-    """
-    Crops perfectly aligned topography directly from the VRT based on the mathematical Tile ID.
+    """Crops perfectly aligned topography directly from the VRT based on the mathematical Tile ID.
     Calculates Slope, Aspect, and averages the DEM for the coarse channel.
+
+    Args:
+      tile_id: the tile identifier on the map.
+      vrt_path: the path to the virtual DEM file.
+      out_dem_dir: the output directory of the elevation tiles.
+      out_slope_dir: the output directory of the slope tiles.
+      out_aspect_dir: the output directory of the aspect tiles.
+      base_res:  the target resolution in meters (Default value = 90)
+      grid_size: the target grid size (Default value = 256)
+
     """
     # Create directories
     for directory in [out_dem_dir, out_slope_dir, out_aspect_dir]:
@@ -86,8 +95,12 @@ def generate_tile_terrain(
         print(e.stderr)
 
 def process_fire(target_fire_id, fire_growth_pts):
-    """
-    Core logic to find all unique tiles for a single fire and generate their terrain.
+    """Core logic to find all unique tiles for a single fire and generate their terrain.
+
+    Args:
+      target_fire_id: the target fire's ID
+      fire_growth_pts: the CFSD dataframe
+
     """
     single_fire_df = fire_growth_pts[fire_growth_pts['ID'] == target_fire_id].copy()
 

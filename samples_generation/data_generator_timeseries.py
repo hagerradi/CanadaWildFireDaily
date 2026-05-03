@@ -17,6 +17,9 @@ from samples_generation.data_generator_helper import create_stratified_splits, c
 from configs import settings
 
 class H5FireTimeSeriesDataset(Dataset):
+    """
+    Dataset to contruct the time series samples from the H5 files
+    """
     
     def __init__(self, h5_dir, id_list, mapper, dynamic_features, static_features=None, 
                  fire_feature='firearea', patch_size=256, seq_length=3,
@@ -62,7 +65,6 @@ class H5FireTimeSeriesDataset(Dataset):
         self.num_channels = base_channels
         
         self.samples = [] 
-        # self.open_h5_handles = {}
         self.open_h5_handles = OrderedDict()
         self.max_open_files = 100
         
@@ -70,23 +72,30 @@ class H5FireTimeSeriesDataset(Dataset):
 
     # --- HELPER METHODS ---
     def _get_expected_date(self, day_group) -> str | None:
-        """Extracts the fire day date."""
+        """Extracts the fire day date.
+
+        Args:
+          day_group: the key of the day in the H5 file
+
+        Returns:
+            the fire's date
+        """
         fire_datetime = day_group.attrs.get("noon_utc") or day_group.attrs.get("start_utc") or day_group.attrs.get("end_utc")
         if fire_datetime:
             if isinstance(fire_datetime, bytes):
                 fire_datetime = fire_datetime.decode('utf-8')
             return fire_datetime.split("T")[0]
         return None
-            
-    # def _get_h5_handle(self, fire_id):
-    #     """Helper to manage persistent file handles dynamically."""
-    #     file_path = os.path.join(self.h5_dir, f"fire_{fire_id}.h5")
-    #     if file_path not in self.open_h5_handles:
-    #         self.open_h5_handles[file_path] = h5py.File(file_path, 'r', swmr=True)
-    #     return self.open_h5_handles[file_path]
 
     def _get_h5_handle(self, fire_id):
-        """Helper to manage persistent file handles with an LRU capacity limit."""
+        """Helper to manage persistent file handles with an LRU capacity limit.
+
+        Args:
+          fire_id: the fire's ID
+
+        Returns: the fire's file handle
+
+        """
         file_path = os.path.join(self.h5_dir, f"fire_{fire_id}.h5")
         
         # If it's already open, mark it as 'recently used' and return it
@@ -359,9 +368,13 @@ class H5FireTimeSeriesDataset(Dataset):
         return x_tensor, y_tensor
     
 def save_dataset_to_disk(dataset, output_base_folder, split_name):
-    """
-    Iterates through the dataset and saves each sample as a .pt file.
+    """Iterates through the dataset and saves each sample as a .pt file.
     Creates the necessary subfolders automatically.
+
+    Args:
+      dataset: the samples dataset
+      output_base_folder: the saving folder's directory
+      split_name: train, val, or test
     """
     # Create the specific subfolder
     split_folder = os.path.join(output_base_folder, split_name)
@@ -380,6 +393,13 @@ def save_dataset_to_disk(dataset, output_base_folder, split_name):
         torch.save(data_dict, file_path)
 
 def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
+    """
+    End-to-end process to generate the samples
+
+    Args:
+      config: Config: the config params
+      seq_length: int: the length of the time series
+    """
     
     tc = config.training
 
@@ -391,7 +411,7 @@ def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
     ]
     dynamic_feats = [feat.lower() for feat in dynamic_feats]
     static_feats = [
-        'dem', 'slope', 'aspect'
+        'dem', 'slope', 'aspect', 'biomass', 'closure', 'prcb', 'prcc'
     ]
     
     target_years = ["2020", "2021", "2022", "2023", "2024"] 

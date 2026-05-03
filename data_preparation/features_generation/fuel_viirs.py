@@ -17,9 +17,14 @@ except Exception as e:
     ee.Initialize(project='widlfires-vegetation')
 
 def get_gee_url_with_retry(ee_image, roi, max_retries=5):
-    """
-    Requests a download URL from GEE with exponential backoff.
+    """Requests a download URL from GEE with exponential backoff.
     Injects the exact EPSG:4326 grid transform for perfect pixel alignment.
+
+    Args:
+      ee_image: the GEE image corresponding to the VIIRS product
+      roi: the bounding box
+      max_retries:  the maximum retries for fetching data from GEE (Default value = 5)
+
     """
     wait_time = 2
     
@@ -48,8 +53,15 @@ def get_gee_url_with_retry(ee_image, roi, max_retries=5):
     return None
 
 def fetch_in_memory_raster(url):
-    """
-    Downloads GeoTIFF bytes and loads them into rioxarray in RAM.
+    """Downloads GeoTIFF bytes and loads them into rioxarray in RAM.
+
+    Args:
+        url: The direct web URL of the GeoTIFF file.
+
+    Returns:
+        da: The loaded raster data (or None if the download fails).
+        memfile: The in-memory file object.
+        src: The opened dataset reader.
     """
     response = requests.get(url)
     if response.status_code != 200:
@@ -62,10 +74,12 @@ def fetch_in_memory_raster(url):
     return da, memfile, src
 
 def run_daily_viirs_pipeline(h5_path):
-    """
-    Updated for Tile-Based Architecture.
-    Fetches VIIRS vegetation data for the entire fire extent and distributes it 
+    """Updated for Tile-Based Architecture.
+    Fetches VIIRS vegetation data for the entire fire extent and distributes it
     into the individual tiles and days.
+
+    Args:
+      h5_path: the fire's H5 file path
     """
     fire_name = Path(h5_path).stem
     print(f"\n{'='*60}\nRunning Tile-Based VIIRS Pipeline: {fire_name}")

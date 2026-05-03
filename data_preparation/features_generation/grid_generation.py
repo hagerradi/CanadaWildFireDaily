@@ -8,6 +8,16 @@ from datetime import datetime, timedelta
 import h5py
 
 def local_to_utc(row, tf, lon_col, lat_col):
+    """
+
+    Args:
+      row: the dataframe row
+      tf: the timezone finder
+      lon_col: the name of the longitude column
+      lat_col: the name of the latitude column
+
+    Returns: the new dataframe with the dates columns
+    """
     
     if pd.isna(row[lat_col]) or pd.isna(row[lon_col]) or pd.isna(row['DOB']):
         return pd.Series([None, None, None, None])
@@ -32,9 +42,18 @@ def local_to_utc(row, tf, lon_col, lat_col):
     ])
 
 def append_tile_coordinates(df, grid_size=256, pixel_size=90, x_col='easting', y_col='northing'):
-    """
-    Calculates the global tile IDs and local 0-255 pixel coordinates 
+    """Calculates the global tile IDs and local 0-255 pixel coordinates
     for every row in the dataframe, appending them as new columns.
+
+    Args:
+      df: dataframe
+      grid_size:  the grid size (Default value = 256)
+      pixel_size:  the pixel size (Default value = 90)
+      x_col:  the name of the X column (Default value = 'easting')
+      y_col:  the name of the Y column (Default value = 'northing')
+
+    Returns: the new dataframe with the columns related to the tiles
+
     """
     df_mapped = df.copy()
     tile_span_m = grid_size * pixel_size
@@ -57,9 +76,23 @@ def append_tile_coordinates(df, grid_size=256, pixel_size=90, x_col='easting', y
 def generate_fire_h5(df, fire_id, output_folder, grid_size=256, pixel_size=90, 
                      x_col='easting', y_col='northing', lat_col='lat', lon_col='lon', 
                      fill_value=-9999):
-    """
-    Generates an HDF5 file for a specific fire using the permanent global tile architecture.
+    """Generates an HDF5 file for a specific fire using the permanent global tile architecture.
     Structure: /tile_ID / Coords | days / day_XXX / features
+
+    Args:
+      df: the CFSD dataframe
+      fire_id: the id of the fire
+      output_folder: the destination folder of the H5 files
+      grid_size:  the grid size (Default value = 256)
+      pixel_size:  the pixel size (Default value = 90)
+      x_col: the name of the X column (Default value = 'easting')
+      y_col: the name of the Y column (Default value = 'northing')
+      lat_col: the name of the longitude column (Default value = 'lat')
+      lon_col: the name of the latitude column (Default value = 'lon')
+      fill_value:  the filling value for missing data in the firemask (Default value = -9999)
+
+    Returns: the path of the fire's H5 folder
+
     """
     fire_df = df[df["ID"] == fire_id].copy()
     

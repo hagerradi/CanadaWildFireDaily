@@ -18,6 +18,7 @@ from samples_generation.data_generator_helper import create_stratified_splits, c
 from configs import settings
 
 class H5FireSimpleDataset(Dataset):
+    """ """
     
     def __init__(self, h5_dir, id_list, mapper, dynamic_features, static_features=None, 
                  fire_feature='firearea', patch_size=256, 
@@ -69,7 +70,14 @@ class H5FireSimpleDataset(Dataset):
 
     # --- HELPER METHODS ---
     def _get_expected_date(self, day_group) -> str | None:
-        """Extracts the fire day date."""
+        """Extracts the fire day date.
+
+        Args:
+          day_group: the key of the day in the H5 file
+
+        Returns:
+            the fire's date
+        """
         fire_datetime = day_group.attrs.get("noon_utc") or day_group.attrs.get("start_utc") or day_group.attrs.get("end_utc")
         if fire_datetime:
             if isinstance(fire_datetime, bytes):
@@ -78,7 +86,15 @@ class H5FireSimpleDataset(Dataset):
         return None
 
     def _get_sat_age_days(self, day_group, expected_date_str) -> float:
-        """Calculates the gap between fire day and satellite acquisition."""
+        """Calculates the gap between fire day and satellite acquisition.
+
+        Args:
+          day_group: the key of the day in the H5 file
+          expected_date_str: the date of the fireday
+
+        Returns:
+            the difference in days between the fireday and the day of the satellite image
+        """
         if not expected_date_str or "satellite" not in day_group:
             return 0.0
             
@@ -113,7 +129,14 @@ class H5FireSimpleDataset(Dataset):
             return 0.0
 
     def _get_h5_handle(self, fire_id):
-        """Helper to manage persistent file handles with an LRU capacity limit."""
+        """Helper to manage persistent file handles with an LRU capacity limit.
+
+        Args:
+          fire_id: the fire's ID
+
+        Returns: the fire's file handle
+
+        """
         file_path = os.path.join(self.h5_dir, f"fire_{fire_id}.h5")
         
         # If it's already open, mark it as 'recently used' and return it
@@ -378,35 +401,37 @@ class H5FireSimpleDataset(Dataset):
             return x_tensor, y_tensor
 
 def save_dataset_to_disk(dataset, output_base_folder, split_name):
-    """
-    Iterates through the dataset and saves each sample as a .pt file.
+    """Iterates through the dataset and saves each sample as a .pt file.
     Creates the necessary subfolders automatically.
+
+    Args:
+      dataset: the samples dataset
+      output_base_folder: the output folder of the samples
+      split_name: train, val, or test
     """
-    # 1. Create the specific subfolder
+    # Create the specific subfolder
     split_folder = os.path.join(output_base_folder, split_name)
     os.makedirs(split_folder, exist_ok=True)
     
     print(f"\nSaving {split_name.upper()} split to {split_folder}...")
     
-    # 2. Iterate directly through the dataset and save
+    # Iterate directly through the dataset and save
     for idx in tqdm(range(len(dataset)), desc=f"Generating {split_name}"):
         
-        # # Unpack based on whether we are returning sat_age or not
-        # if is_sat_age:
-        #     x_tensor, y_tensor, delta_t = dataset[idx]
-        #     data_dict = {'x': x_tensor, 'y': y_tensor, 'delta_t': delta_t}
-        # else:
-        #     x_tensor, y_tensor = dataset[idx]
-        #     data_dict = {'x': x_tensor, 'y': y_tensor}
         x_tensor, y_tensor, delta_t = dataset[idx]
         data_dict = {'x': x_tensor, 'y': y_tensor, 'delta_t': delta_t}
             
-        # 3. Save the tensor dictionary to disk
+        # Save the tensor dictionary to disk
         file_path = os.path.join(split_folder, f"sample_{idx}.pt")
         torch.save(data_dict, file_path)
 
 
 def generate_simple_offline_data(config: Config) -> None:
+    """
+
+    Args:
+      config: Config: the config parameters
+    """
     
     tc = config.training
 
@@ -414,7 +439,7 @@ def generate_simple_offline_data(config: Config) -> None:
 
     dynamic_feats = ['tmax', 'rh', 'ws', 'prec', 'u10', 'v10', 'evi', 'ndvi', 
                      's2_b02', 's2_b03', 's2_b04', 's2_b08', 's2_b11', 's2_b12', 's2_scl']
-    static_feats = ['dem', 'slope', 'aspect']
+    static_feats = ['dem', 'slope', 'aspect', 'biomass', 'closure', 'prcb', 'prcc']
     target_years = ["2020", "2021", "2022", "2023", "2024"] 
     
     # ---------------------------------------------------------
@@ -448,7 +473,6 @@ def generate_simple_offline_data(config: Config) -> None:
         normalize=False, stats_dict=None, sat_nodata=np.nan
     )
     
-    # retained_ids = sorted(list({f_dict['fire_id'] for s in overall_dataset.samples for f_dict in s['curr_fires']}))
     retained_ids = set()
     for s in overall_dataset.samples:
         for f_dict in s['curr_fires']:

@@ -10,6 +10,15 @@ from data_preparation.features_generation.grid_generation import append_tile_coo
 from data_preparation.features_generation.helpers import lonlat_to_canada_lambert
 
 def generate_mapper_for_year(year, output_folder):
+    """
+
+    Args:
+      year: the target year 
+      output_folder: the output folder to store the mappers
+
+    Returns:
+
+    """
     
     # Resolve Path dynamically based on the year
     csv_path = f"{settings.BASE_FOLDER}/Firegrowth_pts_v1_1_{year}/Firegrowth_pts_v1_1_{year}.csv"
@@ -92,7 +101,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    # Define where you want the JSONs saved
     out_dir = settings.METADATA_FOLDER
     
     generate_mapper_for_year(

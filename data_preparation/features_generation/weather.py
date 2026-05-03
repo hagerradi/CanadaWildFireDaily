@@ -11,6 +11,17 @@ import h5py
 import gc
 
 def process_era5_grid(ds_fire, lon_grid, lat_grid, day_attrs):
+    """Interpolates ERA5 weather data to a target grid and calculates daily metrics.
+
+    Args:
+        ds_fire: the raw ERA5 weather dataset.
+        lon_grid: 2D array of target longitudes.
+        lat_grid: 2D array of target latitudes.
+        day_attrs: Dictionary with daily timestamps ('noon_utc', 'end_utc').
+
+    Returns:
+        A dictionary containing the processed 2D weather arrays (ws, rh, tmax, prec, u10, v10).
+    """
 
     # Times
     t_end = pd.to_datetime(day_attrs['end_utc'])
@@ -60,11 +71,18 @@ def process_era5_grid(ds_fire, lon_grid, lat_grid, day_attrs):
     }
 
 def fast_deduplicate_by_data(ds):
+    """
+    The objective of this function is to remove duplicates in the data when merging multiple months from ERA5
+    Example: Month 5 and Month 6 both contain data for the day 31-05 
+    However, in Month 6, the data only contains NaNs
+    So we remove based on the day that contains NaN (that is what call later the qulity score)
+    
+    Args:
+      ds: the raw ERA5 weather dataset.
 
-    # The objective of this function is to remove duplicates in the data when merging multiple months from ERA5
-    # Example: Month 5 and Month 6 both contain data for the day 31-05 
-    # However, in Month 6, the data only contains NaNs
-    # So we remove based on the day that contains NaN (that is what call later the qulity score)
+    Returns: the deduplicated ERA5 weather dataset.
+
+    """
 
     
     # Create a 'quality score' (number of non-NaN values per timestamp)
@@ -84,8 +102,12 @@ def fast_deduplicate_by_data(ds):
     return ds.drop_vars('quality')
 
 def run_single_h5_era5_pipeline(h5_path, era5_base_folder):
-    """
-    Processes ERA5 weather data for a single H5 fire file using the Tile-Based architecture.
+    """Processes ERA5 weather data for a single H5 fire file using the Tile-Based architecture.
+
+    Args:
+      h5_path: the path of the fire's H5 file
+      era5_base_folder: the folder containing of the ERA5 datasets
+
     """
     h5_path = Path(h5_path)
     if not h5_path.exists():

@@ -19,8 +19,12 @@ TOPO_VARS = {
 }
 
 def process_fire_pipeline(fire_id, fire_growth_pts):
-    """
-    Executes the complete data extraction pipeline for a single fire.
+    """Executes the complete data extraction pipeline for a single fire.
+
+    Args:
+      fire_id: the fire ID
+      fire_growth_pts: the CFSD dataframe 
+
     """
     print(f"\n--- Starting Fire: {fire_id} ---")
     
@@ -54,7 +58,13 @@ def process_fire_pipeline(fire_id, fire_growth_pts):
 
 
 def run_local(all_fire_ids, fire_growth_pts):
-    """Processes all fires sequentially for local/laptop execution."""
+    """Processes all fires sequentially for local/laptop execution.
+
+    Args:
+      all_fire_ids: list of fires IDs
+      fire_growth_pts: the CFSD dataframe
+
+    """
     total_fires = len(all_fire_ids)
     print(f"\n=== LOCAL MODE: Processing ALL {total_fires} fires sequentially ===")
     
@@ -64,7 +74,14 @@ def run_local(all_fire_ids, fire_growth_pts):
 
 
 def run_distributed(all_fire_ids, fire_growth_pts, task_id, chunk_size):
-    """Processes a chunk of fires based on the SLURM Array Task ID."""
+    """Processes a chunk of fires based on the SLURM Array Task ID.
+
+    Args:
+      all_fire_ids: the list fire IDs
+      fire_growth_pts: the CFSD dataframe 
+      task_id: the ID of the task for the distributed job
+      chunk_size: the number of fires to process in the same task
+    """
     total_fires = len(all_fire_ids)
     
     start_idx = task_id * chunk_size

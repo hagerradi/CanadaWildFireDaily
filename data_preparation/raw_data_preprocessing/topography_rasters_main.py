@@ -7,7 +7,13 @@ from data_preparation.raw_data_preprocessing.topography_rasters import process_f
 from data_preparation.features_generation.helpers import lonlat_to_canada_lambert
 
 def run_local(all_fire_ids, fire_growth_pts):
-    """Processes all fires sequentially for local/generic execution."""
+    """Processes all fires sequentially for local/generic execution.
+
+    Args:
+      all_fire_ids: the list of fire IDs.
+      fire_growth_pts: teh CFSD dataframe.
+
+    """
     total_fires = len(all_fire_ids)
     print(f"\n=== LOCAL MODE: Processing ALL {total_fires} fires sequentially ===")
     
@@ -16,7 +22,13 @@ def run_local(all_fire_ids, fire_growth_pts):
         process_fire(target_fire_id, fire_growth_pts)
 
 def run_distributed(all_fire_ids, fire_growth_pts, task_id):
-    """Processes a single fire based on the SLURM Array Task ID."""
+    """Processes a single fire based on the SLURM Array Task ID.
+
+    Args:
+      all_fire_ids: the list of fire IDs.
+      fire_growth_pts: teh CFSD dataframe. 
+      task_id: the ID of the task for the distributed job
+    """
     total_fires = len(all_fire_ids)
     
     if task_id < 0 or task_id >= total_fires:
