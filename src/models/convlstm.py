@@ -1,4 +1,4 @@
-"""Script for the ConvLSTM Model and its extension to Tabular data | Code from https://github.com/ndrplz/ConvLSTM_pytorch"""
+"""Script for the ConvLSTM Model | Code from https://github.com/ndrplz/ConvLSTM_pytorch"""
 """Script for the ConvLSTM Model | Code from https://github.com/eceo-epfl/CanadaFireSat-Model/blob/main/src/models/convlstm.py """
 
 from typing import Tuple

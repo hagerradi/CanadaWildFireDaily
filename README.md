@@ -162,16 +162,35 @@ gdalbuildvrt dem_mosaic.vrt DEM_Tiles/*.tif
 ```
 
 ### 3.2 Generate the Fire Topography
-Now, navigate back to your PROJECT_FOLDER (the root of this repository) to run the GDAL generation script. You must pass the target year as an argument.
+Now, navigate back to your `PROJECT_FOLDER` (the root of this repository) to run the GDAL generation script. This step processes the raw topographical data (elevation, slope, aspect) for your fires and **must be completed before generating the final grid files**.
 
+You can run this script either locally on your machine or distributed across a cluster.
+
+**Option A: Local Execution (Single Machine)**
+Ideal for testing or processing a small subset of data. This mode processes the topography for the fires sequentially on your current machine.
 ```bash
 cd /path/to/your/PROJECT_FOLDER/
 
-# Run the GDAL pipeline for a specific year
-python -m data_preparation.raw_data_preprocessing.topography_rasters 2024
+python -m data_preparation.raw_data_preprocessing.topography_rasters_main 2024 \
+  --mode local
 ```
 
-**Note:** You must run this command for all target years in your dataset (e.g., 2020, 2021, 2022, 2023, 2024).
+**Option B: Distributed Execution (SLURM Cluster)**
+Ideal for processing entire years. This uses SLURM array task IDs to process the heavy GDAL raster operations in parallel.
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.raw_data_preprocessing.topography_rasters_main 2024 \
+  --mode distributed \
+  --task-id $SLURM_ARRAY_TASK_ID
+```
+
+### Parameters Explained
+* **`YEAR` (Positional):** The target year to process (e.g., `2024`). You must run this command for **all target years** in your dataset independently (e.g., 2020 through 2024).
+* **`--mode`:** 
+  * `local`: Runs sequentially on your current machine.
+  * `distributed`: Tells the script to look for a specific subset of fires based on the `--task-id`, allowing hundreds of nodes to process the dataset simultaneously without overlapping.
+* **`--task-id`:** Required if using `--mode distributed`. It maps to your cluster's job array index (e.g., `$SLURM_ARRAY_TASK_ID`), determining exactly which topographical chunk the current job is responsible for.
 
 ---
 
@@ -182,30 +201,64 @@ Once the raw rasters are generated, the data is packaged into structured `.h5` f
 ### 4.1 Features Generation (Base H5 Grids)
 This script constructs the foundational `.h5` file for each fire. It precisely maps daily weather forcing (ERA5), fuel data, and the topographical rasters generated in Part 3 onto a standardized 2D spatial grid.
 
-Run the script by providing the target year and an optional filter list:
+You can run the script either locally on your machine or distributed across a cluster (highly recommended for large datasets). 
+
+**Option A: Local Execution (Single Machine)**
+Ideal for testing or processing a small subset of data. This mode processes the fires sequentially on your current machine.
 ```bash
-python -m data_preparation.features_generation.grid_main 2024 /path/to/fire_ids_256_5_years.npy
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.features_generation.grid_main 2024 \
+  --mode local
 ```
 
-**Key Execution Notes:**
-* **Target Years:** You must run this command for **all target years** in your dataset (e.g., 2020 through 2024).
-* **The ID Filter (Optional):** The `fire_ids_256_5_years.npy` file contains a pre-filtered list of fire IDs that are guaranteed to physically fit inside the 256x256 grid boundaries. If you do not specify this path, the script will default to generating grids for **all** fires in that year.
-* **Parallel Processing (Recommended):** Generating these dense 3D/4D `.h5` files is heavily I/O bound. We highly recommend running this step in parallel using a cluster (e.g., via a SLURM job array). During our testing, processing batches of 10 fires per parallel job yielded optimal performance.
+**Option B: Distributed Execution (SLURM Cluster)**
+Ideal for processing entire years. This uses SLURM array task IDs to process multiple chunks of fires in parallel.
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.features_generation.grid_main 2024 \
+  --mode distributed \
+  --task-id $SLURM_ARRAY_TASK_ID \
+  --chunk-size 10
+```
+
+### Parameters Explained
+* **`YEAR` (Positional):** The target year to process (e.g., `2024`). You must run this command for **all target years** in your dataset independently.
+* **`--mode`:** 
+  * `local`: Runs sequentially on your current machine.
+  * `distributed`: Tells the script to look for a specific subset of fires based on the `--task-id`, allowing hundreds of nodes to process the dataset simultaneously without overlapping.
+* **`--task-id`:** Required if using `--mode distributed`. It maps to your cluster's job array index (e.g., `$SLURM_ARRAY_TASK_ID`), determining exactly which chunk of fires the current job is responsible for.
+* **`--chunk-size`:** Used with `--mode distributed`. Defines how many fires a single job or process should handle. Generating these dense 3D/4D `.h5` files is heavily I/O bound. During our testing, processing batches of **5 to 10 fires** per parallel job yielded optimal performance.
 
 
 ### 4.2 Satellite Generation (Sentinel-2 Imagery)
-This script queries the Microsoft Planetary Computer to download Sentinel-2 multispectral imagery (B01-B12) that aligns spatially and temporally with the grids generated in 4.1. It directly appends the new `satellite/` group and Cloud Cover statistics into the existing `.h5` files.
 
-Run the script by providing the target year and the optional filter list:
+This script queries the Microsoft Planetary Computer to download Sentinel-2 multispectral imagery (B02, B03, B04, B06, B11, B12) that aligns spatially and temporally with the grids generated in the previous step. It directly appends the new `satellite/` group and Cloud Cover statistics into your existing `.h5` files.
+
+**Option A: Local Execution**
 ```bash
-python -m data_preparation.satellite_generation.satellite_main 2024 /path/to/fire_ids_256_5_years.npy
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.satellite_generation.satellite_main 2024 \
+  --mode local
 ```
 
+**Option B: Distributed Execution (SLURM Cluster)**
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.satellite_generation.satellite_main 2024 \
+  --mode distributed \
+  --task-id $SLURM_ARRAY_TASK_ID
+```
+*(Note: The `YEAR`, `--mode`, and `--task-id` parameters function exactly as described in the previous sections).*
+
 **Key Execution Notes:**
-* **Parallel Execution (1 Fire per Job):** We highly recommend launching this step via a SLURM job array, allocating exactly **one fire per parallel job**. This maximizes download throughput.
-* **API Throttling & Fault Tolerance:** Because we are sending thousands of requests to the Planetary Computer STAC API, connections can occasionally be throttled, dropped, or timed out. 
+* **Parallel Execution (1 Fire per Job):** When running on a cluster, we highly recommend allocating exactly **one fire per parallel job** (no chunking). This maximizes download throughput and isolates API failures.
+* **API Throttling & Fault Tolerance:** Because the script sends thousands of requests to the Planetary Computer STAC API, connections can occasionally be throttled, dropped, or timed out. 
 * **Resumability (Status Tracking):** To handle dropped connections, the script uses a marker system. It writes empty trace files (`success_{fire_id}.txt` or `fail_{fire_id}.txt`) to the `SATELLITE_STATUS_FOLDER`. 
-  * If your pipeline crashes or times out due to API limits, you can simply re-run the exact same SLURM script. The code will instantly bypass successful fires, delete the fail flags of the broken ones, and retry the downloads automatically.
+  * If your pipeline crashes or times out due to API limits, you can simply **re-run the exact same command**. The code will instantly bypass successful fires, delete the fail flags of the broken ones, and retry the downloads automatically.
 
 
 ### 4.3 Quality Control & Diagnosis
@@ -213,6 +266,8 @@ Wildfire datasets rely on overlapping multiple different data sources, which can
 
 Run the diagnosis script:
 ```bash
+cd /path/to/your/PROJECT_FOLDER/
+
 python -m data_preparation.diagnosis.quality_diagnosis
 ```
 
@@ -221,29 +276,87 @@ python -m data_preparation.diagnosis.quality_diagnosis
 * **Storage Efficiency:** To save disk space, perfectly clean days do not receive a mask. The PyTorch Dataloader is programmed to assume a day is perfectly clean unless it finds a `quality_mask` present.
 * **Model Integration:** During training, the samples builder will automatically detect these `quality_mask` flags and skip corrupted days, ensuring the model is only fed complete data.
 
+### 4.4 Tile Mapper Generation (Metadata)
+
+This script scans the fires (from the dataframes) and builds a mapping dictionary (`tile_dob_mapper_{year}.json`). It groups together any individual fires that share the exact same 256x256 grid tile on the exact same Day of Burn (DOB). 
+
+This metadata is critical for the samples generation (next section). It allows the pipeline to safely merge overlapping fire masks into a single "Super-Fire" environment, preventing spatial data leakage between the training and testing sets.
+
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m data_preparation.metadata_generation.tile_mapper 2024
+```
+*(Note: Unlike previous steps, this script is very fast and runs locally in a single pass without needing SLURM distribution.)*
+
+**Key Execution Notes:**
+* **Output Location:** The resulting JSON files are saved directly into your `fires_metadata/` folder.
+* **Pre-Computed Files Provided:** We have already provided the generated mapper files for **2020 through 2024** directly in this repository! You **do not** need to run this script unless you are processing brand new years or modifying the spatial grid parameters.
+
 ---
 
-## Part 5: Modeling
+## Part 5: Samples Generation
 
-With the `.h5` dataset prepared, the model is ready to train.
+This is the final data preparation step before model training. This script reads the raw daily `.h5` files and the JSON tile mappers (from Part 4) to compile finalized, ready-to-train PyTorch samples. 
 
-### 5.1 Configuration (`configs/default.yaml`)
+> ⚠️ **Important Data Requirement:** > This step absolutely requires the raw Fire Growth CSV files (e.g., `Firegrowth_pts_v1_1_2024.csv`). If you have not downloaded these yet, please refer to **Part 1: Data Acquisition** to download them from the Open Science Framework (OSF) and place them in your `DATA_FOLDER`.
+
+Crucially, this step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
+
+To generate the dataset, run the following command from the root of your project:
+
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m samples_generation.data_generator_main --config configs/default.yaml --type simple
+```
+
+### Script Arguments:
+* `--config`: The path to your configuration file (e.g., `configs/default.yaml`).
+* `--type`: The formatting style of the generated samples. 
+  * `choices=["simple", "timeseries"]`
+  * **`simple`**: Generates standard single-step spatial inputs (Day $T \rightarrow$ Predict Day $T+1$). Best for standard U-Net architectures.
+  * **`timeseries`**: Generates sequential temporal inputs (e.g., Days $T, T+1, T+2 \rightarrow$ Predict Day $T+3$). Best for spatio-temporal architectures like ConvLSTM.
+
+**Key Execution Notes:**
+* **Dataset Normalization:** During generation, the script automatically calculates the global mean and standard deviation for all features across the training split and saves a `.json` file. This ensures the validation and test sets are normalized exclusively using training statistics.
+* **Output Location:** The script saves each generated sample as an individual PyTorch (`.pt`) file inside designated split subfolders (e.g., `train`, `val`, `test`) within either your `SAMPLE_FOLDER` or `TIMESERIES_SAMPLE_FOLDER`. Each file contains a dictionary with the following:
+  * `x`: The input feature tensor(s).
+  * `y`: The ground truth target mask.
+  * `delta_t`: The satellite image age in days (included for `simple` samples only).
+* **Optimization Note:** It is possible to build a PyTorch Dataset that reads directly from the raw daily `.h5` files during training using the code provided in `samples_generation/data_generator.py` and `samples_generation/data_generator_timeseries.py`. However, we pre-compute and save these ready-to-batch `.pt` tensors purely for optimization purposes to significantly accelerate the training loop and maximize GPU utilization.
+
+## Part 6: Modeling
+
+With the samples generated, the model is ready to train.
+
+### 6.1 Configuration (`configs/default.yaml`)
 All training hyperparameters, hardware settings, and logging preferences are centralized in `configs/default.yaml`. Before training, you can adjust this file to suit your needs.
 
-### 5.2 Model Selection & Customization
-Multiple model architectures are implemented in the `src/models/` directory:
-1. **`UNet`**: Standard baseline Spatial UNet.
-2. **`SpatiotemporalUNet`**: UNet with a **ConvLSTM** bottleneck for recurrent time-series processing.
-3. *(More to be added ...)*
+### 6.2 Model Selection & Customization
+Multiple model architectures are implemented in the `src/models/` directory to handle different temporal and spatial requirements. 
 
-To switch between architectures or dataloaders (e.g., swapping from single-day static prediction to 3-day sliding window forecasting), open `src/train.py` and comment/uncomment the respective dataloader and model initializations. 
+To switch between architectures (which will automatically configure the corresponding dataloaders, such as swapping from single-day static prediction to a 3-day sliding window), open your `configs/default.yaml` and update the `architecture` parameter under the `model` section to one of the following options:
 
-### 5.3 Training the Model
+1. **Standard UNet** (`architecture: 'unet'`): 
+   The baseline spatial U-Net model.
+2. **Age-Encoding UNet** (`architecture: 'unet_age'`): 
+   A U-Net that explicitly encodes the satellite age (the time gap in days between the fire event and the satellite acquisition).
+3. **Spatiotemporal UNet** (`architecture: 'unet_convlstm'`): 
+   A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
+4. **Attention UNet** (`architecture: 'unet_attention'`): 
+   A U-Net utilizing attention gates in the skip connections to help the model focus on the most critical spatial features and suppress irrelevant background noise.
+5. **UNet-SegFormer** (`architecture: 'unet_segformer'`): 
+   A hybrid vision-transformer architecture that replaces the standard CNN encoder with SegFormer's Mix Vision Transformer (MiT), paired with a standard U-Net decoder for heavy pixel-level accuracy. 
+
+### 6.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
 
 To run the training loop locally:
 ```bash
-python main.py --config configs/default.yaml
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m main --config configs/default.yaml
 ```
 
 **Key Training Features:**

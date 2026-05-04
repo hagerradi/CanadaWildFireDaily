@@ -5,12 +5,14 @@ from configs import settings
 from src.config import Config
 from skimage import morphology
 
-class TimeSeriesFireDataset(Dataset):
-    def __init__(self, data_dir: str):
+class DailyFireDataset(Dataset):
+    def __init__(self, data_dir: str, return_sat_age: bool = False):
         """
-            data_dir: Path to the specific split folder (e.g., settings.TIMESERIES_SAMPLE_FOLDER + "/train")
+            data_dir: Path to the specific split folder (e.g., settings.SAMPLE_FOLDER + "/train")
         """
+        
         self.data_dir = data_dir
+        self.return_sat_age = return_sat_age
         
         # Sort files to ensure consistent, reproducible ordering across runs
         self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.pt')])
@@ -24,47 +26,48 @@ class TimeSeriesFireDataset(Dataset):
         # Load the pre-computed tensor dictionary from the hard drive
         data = torch.load(file_path, weights_only=True)
 
-        # APPLYING MAX_SIZE=1 HOLE FILLING TO THE MASK
+        # APPYING MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
         y_tensor = data['y']
-        # Convert to boolean numpy array to find where ANY fire exists
+        # Convert to boolean numpy array
         y_np = y_tensor.numpy() > 0 
-        # Fill the 1-pixel projection gaps safely (projection noise)
+        # Fill the 1-pixel projection gaps safely
         y_filled_np = morphology.remove_small_holes(y_np, area_threshold=1)
-        # Find ONLY the pixels that were newly filled (False in original, True in filled)
-        newly_filled_mask = y_filled_np & ~y_np
-        # Safely add the new pixels as class 1.0 without destroying existing 2.0s
-        y_tensor[newly_filled_mask] = 1.0
-        data['y'] = y_tensor
+        # Convert back to PyTorch tensor and match the original data type
+        data['y'] = torch.from_numpy(y_filled_np).to(y_tensor.dtype)
         
-        return data['x'], data['y']
+        if self.return_sat_age:
+            return data['x'], data['y'], data['delta_t']
+        else:
+            return data['x'], data['y']
 
 
-def get_timeseries_dataloaders(config: Config) -> tuple[DataLoader, DataLoader, DataLoader]:
-    """Instantiates the offline time-series datasets and wraps them in PyTorch DataLoaders.
+def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """Instantiates the offline datasets and wraps them in PyTorch DataLoaders.
 
     Args:
-      config: Config: config parameters.
+      config: Config: config parameters
+      is_sat_age: bool: toggle to choose if the satellite age gap is included in the sample
 
-    Returns: train, validation, and test loaders
+    Returns: the train, val, and test loaders
 
     """
     tc = config.training
-
-    base_data_path = settings.TIMESERIES_SAMPLE_FOLDER
+    
+    base_data_path = settings.SAMPLE_FOLDER
 
     # Define the paths to your precomputed splits
     train_dir = os.path.join(base_data_path, "train")
     val_dir = os.path.join(base_data_path, "val")
     test_dir = os.path.join(base_data_path, "test")
 
-    # Instantiate the datasets
-    train_dataset = TimeSeriesFireDataset(train_dir)
-    val_dataset = TimeSeriesFireDataset(val_dir)
-    test_dataset = TimeSeriesFireDataset(test_dir)
+    # Instantiate the datasets, passing the sat_age flag
+    train_dataset = DailyFireDataset(train_dir, return_sat_age=is_sat_age)
+    val_dataset = DailyFireDataset(val_dir, return_sat_age=is_sat_age)
+    test_dataset = DailyFireDataset(test_dir, return_sat_age=is_sat_age)
 
-    print(f'Number of offline TS training samples   :: {len(train_dataset)}')
-    print(f'Number of offline TS validation samples :: {len(val_dataset)}')
-    print(f'Number of offline TS test samples       :: {len(test_dataset)}')
+    print(f'Number of offline training samples   :: {len(train_dataset)}')
+    print(f'Number of offline validation samples :: {len(val_dataset)}')
+    print(f'Number of offline test samples       :: {len(test_dataset)}')
 
     # Wrap them in DataLoaders
     train_loader = DataLoader(

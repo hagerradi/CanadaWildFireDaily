@@ -1,9 +1,16 @@
 from pyproj import Transformer, CRS
 
 def lonlat_to_canada_lambert(df, lon_col='lon', lat_col='lat'):
-    """
-    Convert lon/lat in EPSG:4269 (NAD83) to EPSG:3347 (NAD83 / Canada Lambert) in meters.
+    """Convert lon/lat in EPSG:4269 (NAD83) to EPSG:3347 (NAD83 / Canada Lambert) in meters.
     Returns df with 'easting' and 'northing' columns and the target CRS object.
+
+    Args:
+      df: the CFSD dataframe
+      lon_col:  the name of the longitude column (Default value = 'lon')
+      lat_col:  the name of the latitude column (Default value = 'lat')
+
+    Returns: the df with 'easting' and 'northing' columns and the target CRS object
+
     """
     # Safety: require lon/lat columns
     if lon_col not in df.columns or lat_col not in df.columns:

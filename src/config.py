@@ -22,6 +22,7 @@ class ModelConfig:
     hidden_features: list[int] = field(default_factory=lambda: [64, 128, 256, 512])
     use_skip_connections: bool = True
     use_activation_after_upsampling: bool = False
+    architecture: str = "unet"
 
 
 @dataclass

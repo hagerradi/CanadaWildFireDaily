@@ -3,15 +3,16 @@ seed: 42
 dataset:
   height: 256
   width: 256
-  channels: 20
+  channels: 25
   num_classes: 1
 
 model:
-  input_channels: 20
+  input_channels: 25
   num_classes: 1
   hidden_features: [64, 128, 256, 512]
   use_skip_connections: true
   use_activation_after_upsampling: false
+  architecture: "unet"
 
 training:
   batch_size: 16
@@ -38,4 +39,4 @@ comet:
   project_name: ""
   workspace: ""
   experiment_name: "unet-baseline-01"
-  experiment_tags: ["unet-baseline", "1-class"]
+  experiment_tags: ["unet-baseline", "25-channels", "1-class"]
