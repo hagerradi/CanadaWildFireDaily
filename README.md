@@ -299,16 +299,6 @@ python -m data_preparation.metadata_generation.tile_mapper 2024
 
 This is the final data preparation step before model training. This script reads the raw daily `.h5` files and the JSON tile mappers (from Part 4) to compile finalized, ready-to-train PyTorch samples. 
 
-If you are planning to split your README into two separate documents (a Data one and a Model one), adding a highly visible "callout" or "warning" block is the absolute best way to handle this. It immediately catches the reader's eye and prevents them from running the script and getting a crash if they skipped the data download steps.
-
-Here is how you can update that introduction to explicitly state the CSV requirement:
-
-***
-
-## Part 5: Samples Generation
-
-This is the final data preparation step before model training. This script reads the raw daily `.h5` files, the JSON tile mappers (from Part 4), and the original **Fire Growth CSV files** to compile finalized, ready-to-train PyTorch samples. 
-
 > ⚠️ **Important Data Requirement:** > This step absolutely requires the raw Fire Growth CSV files (e.g., `Firegrowth_pts_v1_1_2024.csv`). If you have not downloaded these yet, please refer to **Part 1: Data Acquisition** to download them from the Open Science Framework (OSF) and place them in your `DATA_FOLDER`.
 
 Crucially, this step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
