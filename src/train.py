@@ -16,6 +16,7 @@ from src.models import unet_age
 from src.models import unet_convlstm
 from src.models import unet_attention
 from src.models import unet_segformer
+from src.models import utae
 
 from src.trainer import Trainer
 from src.utils import seed_everything
@@ -103,6 +104,25 @@ def train(config: Config) -> None:
             num_classes=mc.num_classes,
             hidden_features=mc.hidden_features,
             use_skip_connections=mc.use_skip_connections
+        )
+
+    elif mc.architecture == 'utae':
+        train_loader, val_loader, test_loader = get_timeseries_dataloaders(
+            config,
+            return_positions=True,
+        )
+        model = utae.UTAE(
+            input_dim=mc.input_channels,
+            num_classes=mc.num_classes,
+            encoder_widths=mc.hidden_features,
+            decoder_widths=mc.utae_decoder_widths,
+            out_conv_channels=mc.utae_out_conv_channels,
+            agg_mode=mc.utae_agg_mode,
+            encoder_norm=mc.utae_encoder_norm,
+            n_head=mc.utae_n_head,
+            d_model=mc.utae_d_model,
+            d_k=mc.utae_d_k,
+            pad_value=mc.utae_pad_value,
         )
 
     elif mc.architecture == 'unet_attention':

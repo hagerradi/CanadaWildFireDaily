@@ -365,7 +365,13 @@ class H5FireTimeSeriesDataset(Dataset):
         if self.transform:
             x_tensor = self.transform(x_tensor)
 
-        return x_tensor, y_tensor
+        positions = torch.arange(
+            s['start_dob'],
+            s['start_dob'] + self.seq_length,
+            dtype=torch.float32,
+        )
+
+        return x_tensor, y_tensor, positions
     
 def save_dataset_to_disk(dataset, output_base_folder, split_name):
     """Iterates through the dataset and saves each sample as a .pt file.
@@ -385,8 +391,8 @@ def save_dataset_to_disk(dataset, output_base_folder, split_name):
     # Iterate directly through the dataset and save
     for idx in tqdm(range(len(dataset)), desc=f"Generating {split_name}"):
         
-        x_tensor, y_tensor = dataset[idx]
-        data_dict = {'x': x_tensor, 'y': y_tensor}
+        x_tensor, y_tensor, positions = dataset[idx]
+        data_dict = {'x': x_tensor, 'y': y_tensor, 'positions': positions}
             
         # Save the tensor dictionary to disk
         file_path = os.path.join(split_folder, f"sample_{idx}.pt")

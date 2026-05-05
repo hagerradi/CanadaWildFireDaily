@@ -6,11 +6,12 @@ from src.config import Config
 from skimage import morphology
 
 class TimeSeriesFireDataset(Dataset):
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, return_positions: bool = False):
         """
             data_dir: Path to the specific split folder (e.g., settings.TIMESERIES_SAMPLE_FOLDER + "/train")
         """
         self.data_dir = data_dir
+        self.return_positions = return_positions
         
         # Sort files to ensure consistent, reproducible ordering across runs
         self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.pt')])
@@ -36,16 +37,23 @@ class TimeSeriesFireDataset(Dataset):
         y_tensor[newly_filled_mask] = 1.0
         data['y'] = y_tensor
         
+        if self.return_positions:
+            positions = data.get('positions')
+            if positions is None:
+                positions = torch.arange(data['x'].shape[0], dtype=torch.float32)
+            return data['x'], data['y'], positions
+
         return data['x'], data['y']
 
 
-def get_timeseries_dataloaders(config: Config) -> tuple[DataLoader, DataLoader, DataLoader]:
-    """Instantiates the offline time-series datasets and wraps them in PyTorch DataLoaders.
+def get_timeseries_dataloaders(
+    config: Config,
+    return_positions: bool = False,
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Instantiates the offline time-series datasets and wraps them in PyTorch DataLoaders.
 
-    Args:
-      config: Config: config parameters.
-
-    Returns: train, validation, and test loaders
+        return data['x'], data['y']
 
     """
     tc = config.training
@@ -58,9 +66,9 @@ def get_timeseries_dataloaders(config: Config) -> tuple[DataLoader, DataLoader, 
     test_dir = os.path.join(base_data_path, "test")
 
     # Instantiate the datasets
-    train_dataset = TimeSeriesFireDataset(train_dir)
-    val_dataset = TimeSeriesFireDataset(val_dir)
-    test_dataset = TimeSeriesFireDataset(test_dir)
+    train_dataset = TimeSeriesFireDataset(train_dir, return_positions=return_positions)
+    val_dataset = TimeSeriesFireDataset(val_dir, return_positions=return_positions)
+    test_dataset = TimeSeriesFireDataset(test_dir, return_positions=return_positions)
 
     print(f'Number of offline TS training samples   :: {len(train_dataset)}')
     print(f'Number of offline TS validation samples :: {len(val_dataset)}')
