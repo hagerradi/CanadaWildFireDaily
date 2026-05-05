@@ -3,6 +3,11 @@ import segmentation_models_pytorch as smp
 
 class UNetSegFormer(nn.Module):
     def __init__(self, in_channels=20, out_classes=1):
+        """
+        Args:
+            in_channels: the number of input channels. Defaults to 20.
+            out_classes: the number of classification classes. Defaults to 1.
+        """
         super().__init__()
         
         # For a single day, the input channels are what the dataloader sends

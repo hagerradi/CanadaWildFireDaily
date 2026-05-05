@@ -280,7 +280,7 @@ python -m data_preparation.diagnosis.quality_diagnosis
 
 This script scans the fires (from the dataframes) and builds a mapping dictionary (`tile_dob_mapper_{year}.json`). It groups together any individual fires that share the exact same 256x256 grid tile on the exact same Day of Burn (DOB). 
 
-This metadata is critical for the dataloader. It allows the pipeline to safely merge overlapping fire masks into a single "Super-Fire" environment, preventing spatial data leakage between the training and testing sets.
+This metadata is critical for the samples generation (next section). It allows the pipeline to safely merge overlapping fire masks into a single "Super-Fire" environment, preventing spatial data leakage between the training and testing sets.
 
 ```bash
 cd /path/to/your/PROJECT_FOLDER/
@@ -295,14 +295,45 @@ python -m data_preparation.metadata_generation.tile_mapper 2024
 
 ---
 
-## Part 5: Modeling
+## Part 5: Samples Generation
 
-With the `.h5` dataset prepared, the model is ready to train.
+This is the final data preparation step before model training. This script reads the raw daily `.h5` files and the JSON tile mappers (from Part 4) to compile finalized, ready-to-train PyTorch samples. 
 
-### 5.1 Configuration (`configs/default.yaml`)
+> ⚠️ **Important Data Requirement:** > This step absolutely requires the raw Fire Growth CSV files (e.g., `Firegrowth_pts_v1_1_2024.csv`). If you have not downloaded these yet, please refer to **Part 1: Data Acquisition** to download them from the Open Science Framework (OSF) and place them in your `DATA_FOLDER`.
+
+Crucially, this step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
+
+To generate the dataset, run the following command from the root of your project:
+
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m samples_generation.data_generator_main --config configs/default.yaml --type simple
+```
+
+### Script Arguments:
+* `--config`: The path to your configuration file (e.g., `configs/default.yaml`).
+* `--type`: The formatting style of the generated samples. 
+  * `choices=["simple", "timeseries"]`
+  * **`simple`**: Generates standard single-step spatial inputs (Day $T \rightarrow$ Predict Day $T+1$). Best for standard U-Net architectures.
+  * **`timeseries`**: Generates sequential temporal inputs (e.g., Days $T, T+1, T+2 \rightarrow$ Predict Day $T+3$). Best for spatio-temporal architectures like ConvLSTM.
+
+**Key Execution Notes:**
+* **Dataset Normalization:** During generation, the script automatically calculates the global mean and standard deviation for all features across the training split and saves a `.json` file. This ensures the validation and test sets are normalized exclusively using training statistics.
+* **Output Location:** The script saves each generated sample as an individual PyTorch (`.pt`) file inside designated split subfolders (e.g., `train`, `val`, `test`) within either your `SAMPLE_FOLDER` or `TIMESERIES_SAMPLE_FOLDER`. Each file contains a dictionary with the following:
+  * `x`: The input feature tensor(s).
+  * `y`: The ground truth target mask.
+  * `delta_t`: The satellite image age in days (included for `simple` samples only).
+* **Optimization Note:** It is possible to build a PyTorch Dataset that reads directly from the raw daily `.h5` files during training using the code provided in `samples_generation/data_generator.py` and `samples_generation/data_generator_timeseries.py`. However, we pre-compute and save these ready-to-batch `.pt` tensors purely for optimization purposes to significantly accelerate the training loop and maximize GPU utilization.
+
+## Part 6: Modeling
+
+With the samples generated, the model is ready to train.
+
+### 6.1 Configuration (`configs/default.yaml`)
 All training hyperparameters, hardware settings, and logging preferences are centralized in `configs/default.yaml`. Before training, you can adjust this file to suit your needs.
 
-### 5.2 Model Selection & Customization
+### 6.2 Model Selection & Customization
 Multiple model architectures are implemented in the `src/models/` directory to handle different temporal and spatial requirements. 
 
 To switch between architectures (which will automatically configure the corresponding dataloaders, such as swapping from single-day static prediction to a 3-day sliding window), open your `configs/default.yaml` and update the `architecture` parameter under the `model` section to one of the following options:
@@ -320,7 +351,7 @@ To switch between architectures (which will automatically configure the correspo
 6. **UT-AE** (`architecture: 'utae'`):
    A temporal attention encoder-decoder baseline adapted from the ICCV 2021 U-TAE model for satellite image time series. This baseline uses the time-series offline samples from `Timeseries_Samples/`, and the generator now stores sequence positions for the temporal attention encoder when you regenerate those samples.
 
-### 5.3 Training the Model
+### 6.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
 
 To run the training loop locally:

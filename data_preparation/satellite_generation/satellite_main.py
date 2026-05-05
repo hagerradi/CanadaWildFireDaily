@@ -10,8 +10,14 @@ import data_preparation.satellite_generation.satellite_sentinel as satellite_sen
 
 
 def process_fire_pipeline(fire_id, task_id="Local"):
-    """
-    Executes the satellite download and processing pipeline for a single fire.
+    """Executes the satellite download and processing pipeline for a single fire.
+
+    Args:
+      fire_id: the target fire's ID
+      task_id: the task id for the distributed job (Default value = "Local")
+
+    Returns:
+
     """
     print(f"\n--- [Task {task_id}] Starting Satellite Pipeline for Fire: {fire_id} ---")
     
@@ -35,10 +41,6 @@ def process_fire_pipeline(fire_id, task_id="Local"):
         print(f"--- [Task {task_id}] Clearing previous failure marker for Fire {fire_id} ---")
         fail_marker.unlink()
 
-    # # Setup Planetary Computer Client
-    # catalog = pystac_client.Client.open(
-    #     "https://planetarycomputer.microsoft.com/api/stac/v1",
-    # )
     selected_bands = ["B02", "B03", "B04", "B08", "B11", "B12"]
 
     # Run the Pipeline
@@ -60,7 +62,11 @@ def process_fire_pipeline(fire_id, task_id="Local"):
 
 
 def run_local(all_fire_ids):
-    """Processes all fires sequentially for local/laptop execution."""
+    """Processes all fires sequentially for local/laptop execution.
+
+    Args:
+      all_fire_ids: the list of fires' IDs
+    """
     total_fires = len(all_fire_ids)
     print(f"\n=== LOCAL MODE: Processing ALL {total_fires} fires sequentially ===")
     
@@ -70,7 +76,13 @@ def run_local(all_fire_ids):
 
 
 def run_distributed(all_fire_ids, task_id):
-    """Processes a single fire based exactly on the SLURM Array Task ID."""
+    """Processes a single fire based exactly on the SLURM Array Task ID.
+
+    Args:
+      all_fire_ids: the list of fires' IDs
+      task_id: the task id for the distributed job
+
+    """
     total_fires = len(all_fire_ids)
     
     if task_id < 0 or task_id >= total_fires:
@@ -84,6 +96,7 @@ def run_distributed(all_fire_ids, task_id):
 
 
 def main():
+    
     parser = argparse.ArgumentParser(description="Generate Satellite Images for Wildfires.")
     parser.add_argument("year", type=str, help="The target year to process (e.g., 2024)")
     parser.add_argument("--mode", type=str, choices=["local", "distributed"], default="local", 

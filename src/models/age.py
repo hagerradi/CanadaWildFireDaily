@@ -5,6 +5,7 @@ import torch.nn as nn
 import math
 
 class SatelliteAgeBottleneck(nn.Module):
+    """Generates sinusoidal Fourier embeddings to encode time gaps (satellite age)."""
     def __init__(self, fourier_dim=16):
         super().__init__()
         self.fourier_dim = fourier_dim
@@ -16,8 +17,13 @@ class SatelliteAgeBottleneck(nn.Module):
         self.register_buffer('freqs', freqs)
 
     def forward(self, delta_t):
-        """
-        delta_t: (Batch,) - The gap in days between Sat image and Fire day
+        """Encodes the time gap into a Fourier feature representation.
+
+        Args:
+          delta_t: The gap in days between the satellite image and the fire day.
+
+        Returns:
+          The sine and cosine Fourier embeddings for the given time gap.
         """
         # Calculate the Sine/Cosine waves
         # Shape: (Batch, 1) * (1, 8) -> (Batch, 8)
@@ -27,6 +33,7 @@ class SatelliteAgeBottleneck(nn.Module):
         return embedding
 
 class AgeInjectionMLP(nn.Module):
+    """Projects the temporal Fourier embedding to match a network's bottleneck dimension."""
     def __init__(self, fourier_dim, bottleneck_channels):
         super().__init__()
         self.mlp = nn.Sequential(
@@ -36,6 +43,14 @@ class AgeInjectionMLP(nn.Module):
         )
 
     def forward(self, emb):
+        """Processes the time embedding through an MLP for network injection.
+
+        Args:
+          emb: The raw Fourier time embedding.
+
+        Returns:
+          The projected embedding mapped to the bottleneck channel size.
+        """
         # Turns the 16-number barcode into a vector the size of the bottleneck
         # Shape: (Batch, bottleneck_channels)
         return self.mlp(emb)

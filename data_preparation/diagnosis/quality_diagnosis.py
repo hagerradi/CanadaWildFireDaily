@@ -7,9 +7,14 @@ from tqdm import tqdm
 from configs import settings
 
 def apply_quality_masks(h5_folder, dynamic_feats, static_feats):
-    """
-    Creates a binary quality mask (1 = NaN/Inf, 0 = Clean) per day, per tile.
+    """Creates a binary quality mask (1 = NaN/Inf, 0 = Clean) per day, per tile.
     Only saves the mask to the H5 file if there is at least one bad pixel.
+
+    Args:
+      h5_folder: folder containing the H5 files
+      dynamic_feats: dynamic features list
+      static_feats: static features list
+
     """
     h5_files = glob.glob(os.path.join(h5_folder, "*.h5"))
     

@@ -8,10 +8,18 @@ from collections import defaultdict
 from tqdm import tqdm
 
 def create_stratified_splits(df, train_split, random_state=42, overlap_mapper=None):
-    """
-    Takes a dataframe of fire coordinates, strictly groups overlapping fires to prevent 
-    data leakage, calculates combined bounding boxes/centroids, stratifies by size 
+    """Takes a dataframe of fire coordinates, strictly groups overlapping fires to prevent
+    data leakage, calculates combined bounding boxes/centroids, stratifies by size
     and geography, and returns train, val, and test ID lists.
+
+    Args:
+      df: the CFSD dataframe
+      train_split: the size of the training subset in percentage
+      random_state: the random seed (Default value = 42)
+      overlap_mapper: the mapper defining the overlapping fires (Default value = None)
+
+    Returns: the three lists of train, val and test IDs 
+
     """
     df_copy = df.copy()
     
@@ -139,7 +147,14 @@ def create_stratified_splits(df, train_split, random_state=42, overlap_mapper=No
 
 
 def _update_tallies(stats, feat_name, valid_pixels):
-    """Helper function to cleanly update running sums (using float64 to prevent overflow)."""
+    """Helper function to cleanly update running sums (using float64 to prevent overflow).
+
+    Args:
+      stats: the stats dictionary
+      feat_name: the list of features
+      valid_pixels: the mask of valid pixels
+
+    """
     # Force float64 math
     stats[feat_name]['sum'] += np.sum(valid_pixels, dtype=np.float64)
     stats[feat_name]['sum_sq'] += np.sum(valid_pixels ** 2, dtype=np.float64)
@@ -153,10 +168,19 @@ def _update_tallies(stats, feat_name, valid_pixels):
         stats[feat_name]['max'] = current_max
 
 def calculate_h5_statistics(h5_dir, mapper, train_ids, patch_size=256, stats_filename='dataset_stats.json'):
-    """
-    Scans through H5 files based on UNIQUE (Tile, DOB) pairs to compute global stats.
+    """Scans through H5 files based on UNIQUE (Tile, DOB) pairs to compute global stats.
     - Prevents double-counting overlapping fires.
     - Explicitly skips Satellite, NDVI, and EVI for stats generation.
+
+    Args:
+      h5_dir: the folder of H5 files.
+      mapper: the mapper of overlapping fires
+      train_ids: the list of training ids
+      patch_size: the target grid size (Default value = 256)
+      stats_filename: the json file's name to store the stats (Default value = 'dataset_stats.json')
+
+    Returns:
+
     """
     
     stats = defaultdict(lambda: {
