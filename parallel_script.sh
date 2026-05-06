@@ -11,7 +11,7 @@
 
 # Load environment
 module load python/3.10
-source env_wildfires_spread/bin/activate
+source /PATH/TO/VENV
 
 # Map Array Task ID to Run ID (0,1,2 -> 1,2,3)
 RUN_ID=$(( SLURM_ARRAY_TASK_ID + 1 ))

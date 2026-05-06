@@ -18,13 +18,13 @@ TOPO_VARS = {
     'aspect': settings.ASPECT_FOLDER
 }
 
-def process_fire_pipeline(fire_id, fire_growth_pts):
+def process_fire_pipeline(fire_id, fire_growth_pts, scanfi_year):
     """Executes the complete data extraction pipeline for a single fire.
 
     Args:
       fire_id: the fire ID
       fire_growth_pts: the CFSD dataframe 
-
+      scanfi_year: the year of the SCANFI data
     """
     print(f"\n--- Starting Fire: {fire_id} ---")
     
@@ -51,34 +51,35 @@ def process_fire_pipeline(fire_id, fire_growth_pts):
     # Generate the environmental variables
     weather.run_single_h5_era5_pipeline(h5_path, settings.ERA5_FOLDER)
     topography.run_static_topography_pipeline(h5_path, TOPO_VARS)
-    fuel_scanfi.run_single_fire_scanfi(h5_path, settings.SCANFI_FOLDER)
+    fuel_scanfi.run_single_fire_scanfi(h5_path, settings.SCANFI_FOLDER, scanfi_year)
     fuel_viirs.run_daily_viirs_pipeline(h5_path)
 
     print(f"--- Finished Fire: {fire_id} ---")
 
 
-def run_local(all_fire_ids, fire_growth_pts):
+def run_local(all_fire_ids, fire_growth_pts, scanfi_year):
     """Processes all fires sequentially for local/laptop execution.
 
     Args:
       all_fire_ids: list of fires IDs
       fire_growth_pts: the CFSD dataframe
-
+      scanfi_year: the year of the SCANFI data
     """
     total_fires = len(all_fire_ids)
     print(f"\n=== LOCAL MODE: Processing ALL {total_fires} fires sequentially ===")
     
     for i, fire_id in enumerate(all_fire_ids, start=1):
         print(f"\n[{i}/{total_fires}] Processing Fire ID: {fire_id}")
-        process_fire_pipeline(fire_id, fire_growth_pts)
+        process_fire_pipeline(fire_id, fire_growth_pts, scanfi_year)
 
 
-def run_distributed(all_fire_ids, fire_growth_pts, task_id, chunk_size):
+def run_distributed(all_fire_ids, fire_growth_pts, scanfi_year, task_id, chunk_size):
     """Processes a chunk of fires based on the SLURM Array Task ID.
 
     Args:
       all_fire_ids: the list fire IDs
       fire_growth_pts: the CFSD dataframe 
+      scanfi_year: the year of the SCANFI data
       task_id: the ID of the task for the distributed job
       chunk_size: the number of fires to process in the same task
     """
@@ -99,7 +100,7 @@ def run_distributed(all_fire_ids, fire_growth_pts, task_id, chunk_size):
     print(f"Assigned Fires: {my_fires}")
     
     for fire_id in my_fires:
-        process_fire_pipeline(fire_id, fire_growth_pts)
+        process_fire_pipeline(fire_id, fire_growth_pts, scanfi_year)
 
 
 if __name__ == "__main__":
@@ -118,6 +119,15 @@ if __name__ == "__main__":
 
     target_year = args.year
     print(f"Target Year: {target_year}")
+
+    # 5-year interval logic
+    target_year_int = int(target_year)
+    if target_year_int > 2020:
+        scanfi_year = "2020"
+    else:
+        scanfi_year = "2015"
+        
+    print(f"Using SCANFI data from year: {scanfi_year}")
     
     csv_path = f"{settings.BASE_FOLDER}/Firegrowth_pts_v1_1_{target_year}/Firegrowth_pts_v1_1_{target_year}.csv"
     try:
@@ -131,9 +141,9 @@ if __name__ == "__main__":
 
     # Route to the correct execution path
     if args.mode == "local":
-        run_local(all_fire_ids, fire_growth_pts)
+        run_local(all_fire_ids, fire_growth_pts, scanfi_year)
     elif args.mode == "distributed":
         if args.task_id == -1:
             print("[!] Error: You must provide a --task-id when using distributed mode.")
             sys.exit(1)
-        run_distributed(all_fire_ids, fire_growth_pts, args.task_id, args.chunk_size)
+        run_distributed(all_fire_ids, fire_growth_pts, scanfi_year, args.task_id, args.chunk_size)

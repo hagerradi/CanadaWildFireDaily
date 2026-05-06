@@ -11,13 +11,13 @@ SUBSET_FEATURE_LIST = ['ID', 'lon', 'lat', 'easting', 'northing', 'fireday', 'ye
                         'dem', 'slope', 'aspect', 'Biomass', 'Closure', 'prcB', 'prcC']
 
 # To be replaced with the absolute paths
-PROJECT_FOLDER = '/home/mila/h/hager.radi/scratch/mila-wildfires'
-DATA_FOLDER = '/home/mila/h/hager.radi/scratch/CanadaWildFireDaily'
-OUTPUT_FOLDER = 'output_data_wildfires_spread'
+PROJECT_FOLDER = 'project_folder'
+DATA_FOLDER = 'data_folder'
+OUTPUT_FOLDER = 'output_folder'
 
-H5_OUTPUT_FOLDER = f'{OUTPUT_FOLDER}/Fires_H5_V3'
-SAMPLE_FOLDER = f'{OUTPUT_FOLDER}/Samples_V3'
-TIMESERIES_SAMPLE_FOLDER = f'{OUTPUT_FOLDER}/Timeseries_Samples_V3'
+H5_OUTPUT_FOLDER = f'{OUTPUT_FOLDER}/Fires_H5'
+SAMPLE_FOLDER = f'{OUTPUT_FOLDER}/Samples'
+TIMESERIES_SAMPLE_FOLDER = f'{OUTPUT_FOLDER}/Timeseries_Samples'
 METADATA_FOLDER = f'{PROJECT_FOLDER}/fires_metadata'
 SATELLITE_STATUS_FOLDER = f'{PROJECT_FOLDER}/Satellite_Status'
 
