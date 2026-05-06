@@ -7,7 +7,7 @@ To run this project, you must download the core datasets and configure the proje
 ### 1.1 Download the Data
 1. **Fire Growth Points:** Download the target year folders from the Open Science Framework.
    * **Download Link:** [OSF Fire Growth Points](https://osf.io/f48ry/overview)
-2. **Weather Data:** Download the hourly ERA5-Land dataset. You will need to download the raw data as monthly `.nc` files and rename them to follow the format `ERA5_LAND_year_month.nc` (e.g., `ERA5_LAND_2023_06.nc`). Specify the coordinates of the anadian bounding box.
+2. **Weather Data:** Download the hourly ERA5-Land dataset. You will need to download the raw data as monthly `.nc` files and rename them to follow the format `ERA5_LAND_year_month.nc` (e.g., `ERA5_LAND_2023_06.nc`). Specify the coordinates of the Canadian bounding box.
 3. **SCANFI Data:** Download the SCANFI v2 product (rasters) to obtain vegetation attributes (biomass, crown closure, and broadleaf/coniferous cover). Ensure these native 30m rasters are reprojected to EPSG:3347 and downsampled to 90m using average resampling.
 4. **Topography Data:** Download digital elevation model (DEM) tiles from the ASTER GDEM V3 product for the Canadian bounding box.
 

@@ -1,4 +1,4 @@
-# Wildfire Daily Propagation
+# CanadaWildFireDaily
 
 This repository contains a complete, end-to-end deep learning pipeline for forecasting daily wildfire spread.
 
@@ -51,7 +51,7 @@ SAMPLES/
 ```
 
 ### Option 2: Generate Samples from Scratch
-If you prefer to run the sample generation process yourself, this script will read the raw daily `.h5` files and the JSON tile mappers to compile the finalized PyTorch datasets. 
+If you prefer to run the sample generation process yourself, this script will read the raw daily `.h5` files and the JSON tile mappers to compile the finalized samples. 
 
 > ⚠️ **Important Data Requirements:** > To run this process, you must have the `.h5` files, the JSON mappers (fires metadata), and the raw Fire Growth CSV files. All of these raw data files are provided in our Hugging Face repository in the `raw_data` folder: [CanadaWildFireDaily-v1](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily-v1).
 
