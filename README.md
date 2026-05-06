@@ -1,10 +1,12 @@
-# CanadaWildFireDaily
+# CanadaWildfireDaily: A Large-Scale Dataset for Daily Wildfire Spread in Canada
+[Currently under review]
 
-This repository contains a complete, end-to-end deep learning pipeline for forecasting daily wildfire spread.
+This repository contains the code base for the dataset and the benchmark, CanadaWildFireDaily, a dataset for daily wildfire spread prediction.
 
+![alt text](figures/image.png)
 ---
 
-## Part 1 : Path Configuration (settings.py)
+## 🛠️ Part 1 : Path Configuration (settings.py)
 Before running any scripts, open configs/settings.py. This file acts as the central nervous system for the pipeline. You must update the following three variables with their **absolute** paths on your machine:
 
 * `PROJECT_FOLDER`: The absolute path to the root repository folder that contains all of the code (e.g., the src, configs, and data_preparation directories).
@@ -15,7 +17,7 @@ Before running any scripts, open configs/settings.py. This file acts as the cent
 
 ---
 
-## Part 2: Environment Setup
+## ⚙️ Part 2: Environment Setup
 
 ### 2.1 Virtual Environment
 Create and activate a fresh Python virtual environment:
@@ -36,12 +38,13 @@ Install the required packages:
 pip install -r requirements.txt
 ```
 
-## Part 3: Samples Generation
+## 📂 Part 3: Samples Generation
 
 This is the final data preparation step before model training. At this stage, you have two options: you can either use our pre-compiled samples directly, or you can run this script to generate them from scratch using the raw data.
 
 ### Option 1: Use Pre-compiled Samples (Recommended)
-If you want to skip the data generation process and jump straight to training, you can use our finalized samples. 
+If you want to skip the data generation process and jump straight to training, you can use our finalized samples.
+Samples can be downloaded from [here](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily-v1/tree/main/data_samples)
 Place them inside the `SAMPLES` folder defined in your `settings.py`, following this exact structure:
 ```text
 SAMPLES/
@@ -105,7 +108,7 @@ python -m samples_generation.data_generator_main --config configs/default.yaml -
   * `positions`: The sequence positions (included for `timeseries` samples only).
 * **Optimization Note:** It is possible to build a PyTorch Dataset that reads directly from the raw daily `.h5` files during training using the code provided in `samples_generation/data_generator.py` and `samples_generation/data_generator_timeseries.py`. However, we pre-compute and save these ready-to-batch `.npz` arrays purely for optimization purposes to significantly accelerate the training loop and maximize GPU utilization.
 
-## Part 4: Modeling
+## 🤖 Part 4: Modeling
 
 With the samples available, the model is ready to train.
 
@@ -130,7 +133,7 @@ To switch between architectures (which will automatically configure the correspo
 6. **UT-AE** (`architecture: 'utae'`):
    A temporal attention encoder-decoder baseline adapted from the ICCV 2021 U-TAE model for satellite image time series. This baseline uses the time-series offline samples from `Timeseries_Samples/`, and the generator now stores sequence positions for the temporal attention encoder when you regenerate those samples.
 
-### 6.3 Training the Model
+### 4.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
 
 To run the training loop locally:
@@ -145,7 +148,7 @@ python -m main --config configs/default.yaml
 * **Automatic Checkpointing:** The `Trainer` monitors the Validation IoU. Whenever the model improves, it automatically overwrites and saves `best_checkpoint.pt` to your configured `checkpoint_dir`.
 * **Comet.ml Integration:** If `enabled: true` in your config, the pipeline will automatically log learning rates, loss curves, and epoch-by-epoch evaluation metrics directly to your Comet dashboard. It also uploads visual grid predictions at the end of epochs so you can watch the model learn.
 
-### 5.4 Automatic Evaluation (Testing)
+### 4.4 Automatic Evaluation (Testing)
 At the end of the `train` loop, `main.py` automatically looks for the `best_checkpoint.pt` generated during training. 
 
 If found, it initiates the `test()` protocol on the holdout test split. This step computes the final metrics. Furthermore, it uploads high-resolution visual predictions (Previous Fire Mask, Ground Truth, Model Prediction) to CometML for your final visual analysis.
