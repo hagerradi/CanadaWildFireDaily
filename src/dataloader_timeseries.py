@@ -4,6 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 from configs import settings
 from src.config import Config
 from skimage import morphology
+import numpy as np
 
 class TimeSeriesFireDataset(Dataset):
     def __init__(self, data_dir: str, return_positions: bool = False):
@@ -20,30 +21,30 @@ class TimeSeriesFireDataset(Dataset):
         return len(self.files)
         
     def __getitem__(self, idx):
+        
         file_path = os.path.join(self.data_dir, self.files[idx])
-        
-        # Load the pre-computed tensor dictionary from the hard drive
-        data = torch.load(file_path, weights_only=True)
 
-        # APPLYING MAX_SIZE=1 HOLE FILLING TO THE MASK
-        y_tensor = data['y']
-        # Convert to boolean numpy array to find where ANY fire exists
-        y_np = y_tensor.numpy() > 0 
-        # Fill the 1-pixel projection gaps safely (projection noise)
-        y_filled_np = morphology.remove_small_holes(y_np, area_threshold=1)
-        # Find ONLY the pixels that were newly filled (False in original, True in filled)
-        newly_filled_mask = y_filled_np & ~y_np
-        # Safely add the new pixels as class 1.0 without destroying existing 2.0s
-        y_tensor[newly_filled_mask] = 1.0
-        data['y'] = y_tensor
-        
+        with np.load(file_path) as data:
+            x_np = data['x']
+            y_np = data['y']
+            positions_np = data['positions']
+
+        # APPYING MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
+        y_bool = y_np > 0 
+        # Fill the 1-pixel projection gaps
+        y_filled_np = morphology.remove_small_holes(y_bool, area_threshold=1)
+        # Convert back to its original integer type (uint8)
+        y_filled_np = y_filled_np.astype(y_np.dtype)
+
+        # Convert everything to PyTorch Tensors
+        x_tensor = torch.from_numpy(x_np).float() 
+        y_tensor = torch.from_numpy(y_filled_np).float()
+        positions_tensor = torch.from_numpy(positions_np).float()
+
         if self.return_positions:
-            positions = data.get('positions')
-            if positions is None:
-                positions = torch.arange(data['x'].shape[0], dtype=torch.float32)
-            return data['x'], data['y'], positions
-
-        return data['x'], data['y']
+            return x_tensor, y_tensor, positions_tensor
+        else:
+            return x_tensor, y_tensor
 
 
 def get_timeseries_dataloaders(

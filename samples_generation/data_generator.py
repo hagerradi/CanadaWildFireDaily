@@ -419,11 +419,13 @@ def save_dataset_to_disk(dataset, output_base_folder, split_name):
     for idx in tqdm(range(len(dataset)), desc=f"Generating {split_name}"):
         
         x_tensor, y_tensor, delta_t = dataset[idx]
-        data_dict = {'x': x_tensor, 'y': y_tensor, 'delta_t': delta_t}
-            
-        # Save the tensor dictionary to disk
-        file_path = os.path.join(split_folder, f"sample_{idx}.pt")
-        torch.save(data_dict, file_path)
+
+        x_np = x_tensor.numpy().astype(np.float16)
+        y_np = y_tensor.numpy().astype(np.uint8)
+        delta_t_np = delta_t.numpy().astype(np.uint8)
+
+        file_path = os.path.join(split_folder, f"sample_{idx}.npz")
+        np.savez(file_path, x=x_np, y=y_np, delta_t=delta_t_np)
 
 
 def generate_simple_offline_data(config: Config) -> None:
@@ -443,7 +445,7 @@ def generate_simple_offline_data(config: Config) -> None:
     target_years = ["2020", "2021", "2022", "2023", "2024"] 
     
     # ---------------------------------------------------------
-    # 1. LOAD MAPPERS & DATAFRAMES (Unchanged)
+    # LOAD MAPPERS & DATAFRAMES
     # ---------------------------------------------------------
     print('Loading Offline Tile Mappers...')
     master_mapper = {}
@@ -463,7 +465,7 @@ def generate_simple_offline_data(config: Config) -> None:
     print(len(valid_ids))
 
     # ---------------------------------------------------------
-    # 2. FILTER VALID IDs (Unchanged)
+    # FILTER VALID IDs
     # ---------------------------------------------------------
     overall_dataset = H5FireSimpleDataset(
         h5_dir=settings.H5_OUTPUT_FOLDER, id_list=valid_ids, mapper=master_mapper,
@@ -493,7 +495,7 @@ def generate_simple_offline_data(config: Config) -> None:
     gc.collect() 
 
     # ---------------------------------------------------------
-    # 3. CALCULATE STATS (Updated with custom JSON name)
+    # CALCULATE STATS
     # ---------------------------------------------------------
     stats_dict = calculate_h5_statistics(
         settings.H5_OUTPUT_FOLDER, 
@@ -513,13 +515,13 @@ def generate_simple_offline_data(config: Config) -> None:
     }
 
     # ---------------------------------------------------------
-    # 4. INSTANTIATE DATASETS AND SAVE TO DISK
+    # INSTANTIATE DATASETS AND SAVE TO DISK
     # ---------------------------------------------------------
     train_dataset = H5FireSimpleDataset(id_list=train_ids, **common_kwargs)
     val_dataset = H5FireSimpleDataset(id_list=val_ids, **common_kwargs)
     test_dataset = H5FireSimpleDataset(id_list=test_ids, **common_kwargs)
 
-    # Save everything directly to your new SAMPLE_FOLDER
+    # Save everything directly to the SAMPLE_FOLDER
     save_dataset_to_disk(train_dataset, settings.SAMPLE_FOLDER, "train")
     save_dataset_to_disk(val_dataset, settings.SAMPLE_FOLDER, "val")
     save_dataset_to_disk(test_dataset, settings.SAMPLE_FOLDER, "test")

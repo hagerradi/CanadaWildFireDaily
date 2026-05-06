@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 import os
 import h5py
 import numpy as np
@@ -289,7 +289,7 @@ class H5FireTimeSeriesDataset(Dataset):
                         std = self.stats_dict[feature]['std']
                         arr_patch[valid_mask] = (arr_patch[valid_mask] - mean) / std
                     
-                    # FIXED: Assign to the specific time step (t_idx)
+                    # Assign to the specific time step (t_idx)
                     x_tensor[t_idx, channel_idx] = torch.from_numpy(arr_patch)
                     channel_idx += 1
 
@@ -392,11 +392,13 @@ def save_dataset_to_disk(dataset, output_base_folder, split_name):
     for idx in tqdm(range(len(dataset)), desc=f"Generating {split_name}"):
         
         x_tensor, y_tensor, positions = dataset[idx]
-        data_dict = {'x': x_tensor, 'y': y_tensor, 'positions': positions}
-            
-        # Save the tensor dictionary to disk
-        file_path = os.path.join(split_folder, f"sample_{idx}.pt")
-        torch.save(data_dict, file_path)
+        
+        x_np = x_tensor.numpy().astype(np.float16)
+        y_np = y_tensor.numpy().astype(np.uint8)
+        positions_np = positions.numpy().astype(np.uint8)
+
+        file_path = os.path.join(split_folder, f"sample_{idx}.npz")
+        np.savez(file_path, x=x_np, y=y_np, positions=positions_np)
 
 def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
     """
