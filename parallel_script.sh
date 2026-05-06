@@ -23,5 +23,5 @@ export COMET_API_KEY=""
 # Execute with dynamic overrides
 python -m parallel_main \
     --config configs/default.yaml \
-    --arch utae \
+    --arch unet \
     --run_id $RUN_ID

@@ -184,16 +184,12 @@ def main():
     ENV_CONFIG_PATH = "configs/env.yaml" 
     SAT_CONFIG_PATH = "configs/sat.yaml"
 
-    # architectures = [
-    #     'unet', 
-    #     'unet_attention', 
-    #     'unet_age', 
-    #     'unet_convlstm', 
-    #     'unet_env', 
-    #     'unet_segformer',
-    #     'unet_sat'
-    # ]
     architectures = [
+        'unet', 
+        'unet_attention', 
+        'unet_age', 
+        'unet_convlstm',  
+        'unet_segformer',
         'utae'
     ]
     runs = [1, 2, 3]
