@@ -4,7 +4,7 @@ This repository contains a complete, end-to-end deep learning pipeline for forec
 
 ---
 
-## 1 Path Configuration (settings.py)
+## Part 1 : Path Configuration (settings.py)
 Before running any scripts, open configs/settings.py. This file acts as the central nervous system for the pipeline. You must update the following three variables with their **absolute** paths on your machine:
 
 * `PROJECT_FOLDER`: The absolute path to the root repository folder that contains all of the code (e.g., the src, configs, and data_preparation directories).
@@ -36,13 +36,50 @@ Install the required packages:
 pip install -r requirements.txt
 ```
 
-## Part 2: Samples Generation
+## Part 3: Samples Generation
 
-This is the final data preparation step before model training. This script reads the raw daily `.h5` files and the JSON tile mappers (from Part 4) to compile finalized, ready-to-train PyTorch samples. 
+This is the final data preparation step before model training. At this stage, you have two options: you can either use our pre-compiled samples directly, or you can run this script to generate them from scratch using the raw data.
 
-> ⚠️ **Important Data Requirement:** > This step absolutely requires the raw Fire Growth CSV files (e.g., `Firegrowth_pts_v1_1_2024.csv`). If you have not downloaded these yet, please refer to **Part 1: Data Acquisition** to download them from the Open Science Framework (OSF) and place them in your `DATA_FOLDER`.
+### Option 1: Use Pre-compiled Samples (Recommended)
+If you want to skip the data generation process and jump straight to training, you can use our finalized samples. 
+Place them inside the `SAMPLES` folder defined in your `settings.py`, following this exact structure:
+```text
+SAMPLES/
+   ├── train/
+   ├── val/
+   └── test/
+```
 
-Crucially, this step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
+### Option 2: Generate Samples from Scratch
+If you prefer to run the sample generation process yourself, this script will read the raw daily `.h5` files and the JSON tile mappers to compile the finalized PyTorch datasets. 
+
+> ⚠️ **Important Data Requirements:** > To run this process, you must have the `.h5` files, the JSON mappers (fires metadata), and the raw Fire Growth CSV files. All of these raw data files are provided in our Hugging Face repository in the `raw_data` folder: [CanadaWildFireDaily-v1](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily-v1).
+
+Make sure to organize the downloaded files according to the directories defined in your `settings.py`:
+
+**1. Fire Growth CSVs:** Place these in your `BASE_FOLDER`. The structure must look exactly like this:
+```text
+└── BASE_FOLDER/
+    ├── Firegrowth_pts_v1_1_2024/Firegrowth_pts_v1_1_2024.csv
+    ├── Firegrowth_pts_v1_1_2023/Firegrowth_pts_v1_1_2023.csv
+    ├── Firegrowth_pts_v1_1_2022/Firegrowth_pts_v1_1_2022.csv
+    ├── Firegrowth_pts_v1_1_2021/Firegrowth_pts_v1_1_2021.csv
+    └── Firegrowth_pts_v1_1_2020/Firegrowth_pts_v1_1_2020.csv
+```
+
+**2. JSON Mappers:** Place these in your `METADATA_FOLDER`.
+```text
+└── METADATA_FOLDER/
+    ├── tile_dob_mapper_2024.json
+    ├── tile_dob_mapper_2023.json
+    ├── tile_dob_mapper_2022.json
+    ├── tile_dob_mapper_2021.json
+    └── tile_dob_mapper_2020.json
+```
+
+**3. H5 Files:** Place these in your `H5_OUTPUT_FOLDER`.
+
+This step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
 
 To generate the dataset, run the following command from the root of your project:
 
@@ -62,19 +99,20 @@ python -m samples_generation.data_generator_main --config configs/default.yaml -
 **Key Execution Notes:**
 * **Dataset Normalization:** During generation, the script automatically calculates the global mean and standard deviation for all features across the training split and saves a `.json` file. This ensures the validation and test sets are normalized exclusively using training statistics.
 * **Output Location:** The script saves each generated sample as an individual PyTorch (`.pt`) file inside designated split subfolders (e.g., `train`, `val`, `test`) within either your `SAMPLE_FOLDER` or `TIMESERIES_SAMPLE_FOLDER`. Each file contains a dictionary with the following:
-  * `x`: The input feature tensor(s).
+  * `x`: The input features.
   * `y`: The ground truth target mask.
   * `delta_t`: The satellite image age in days (included for `simple` samples only).
-* **Optimization Note:** It is possible to build a PyTorch Dataset that reads directly from the raw daily `.h5` files during training using the code provided in `samples_generation/data_generator.py` and `samples_generation/data_generator_timeseries.py`. However, we pre-compute and save these ready-to-batch `.pt` tensors purely for optimization purposes to significantly accelerate the training loop and maximize GPU utilization.
+  * `positions`: The sequence positions (included for `timeseries` samples only).
+* **Optimization Note:** It is possible to build a PyTorch Dataset that reads directly from the raw daily `.h5` files during training using the code provided in `samples_generation/data_generator.py` and `samples_generation/data_generator_timeseries.py`. However, we pre-compute and save these ready-to-batch `.npz` arrays purely for optimization purposes to significantly accelerate the training loop and maximize GPU utilization.
 
-## Part 6: Modeling
+## Part 4: Modeling
 
-With the samples generated, the model is ready to train.
+With the samples available, the model is ready to train.
 
-### 6.1 Configuration (`configs/default.yaml`)
+### 4.1 Configuration (`configs/default.yaml`)
 All training hyperparameters, hardware settings, and logging preferences are centralized in `configs/default.yaml`. Before training, you can adjust this file to suit your needs.
 
-### 6.2 Model Selection & Customization
+### 4.2 Model Selection & Customization
 Multiple model architectures are implemented in the `src/models/` directory to handle different temporal and spatial requirements. 
 
 To switch between architectures (which will automatically configure the corresponding dataloaders, such as swapping from single-day static prediction to a 3-day sliding window), open your `configs/default.yaml` and update the `architecture` parameter under the `model` section to one of the following options:
@@ -110,4 +148,4 @@ python -m main --config configs/default.yaml
 ### 5.4 Automatic Evaluation (Testing)
 At the end of the `train` loop, `main.py` automatically looks for the `best_checkpoint.pt` generated during training. 
 
-If found, it initiates the `test()` protocol on the holdout test split. This step computes the final unbiased Macro IoU, F1 scores, Precision, and Recall. Furthermore, it uploads high-resolution 4-pane visual predictions (Previous Fire Mask, Ground Truth, Model Prediction, and Probability Heatmap) to CometML for your final visual analysis.
+If found, it initiates the `test()` protocol on the holdout test split. This step computes the final metrics. Furthermore, it uploads high-resolution visual predictions (Previous Fire Mask, Ground Truth, Model Prediction) to CometML for your final visual analysis.
