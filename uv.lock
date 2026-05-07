@@ -1862,7 +1862,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mila-wildfires"
+name = "CanadaWildFireDaily"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
