@@ -1,5 +1,6 @@
 import odc.stac
 import planetary_computer
+import pystac_client
 import numpy as np
 import time
 from datetime import datetime, timedelta
@@ -12,76 +13,73 @@ import planetary_computer
 from odc.geo.geobox import GeoBox
 from affine import Affine
 
-def get_fire_master_cube(h5_path, catalog, bands):
+def get_tile_master_cube(h5_path, tile_id, bands):
     """
-    Downloads the entire satellite history for a fire's duration 
-    into a single 4D NumPy array (Time, Bands, grid_size, grid_size).
-    Optimized with odc-stac for Just-In-Time token signing and stable downloads.
+    Downloads the satellite history for a specific tile into a 4D NumPy array.
+    Includes the 404 overhead fallback to drop broken STAC scenes.
     """
-    with h5py.File(h5_path, 'r') as f:
-        # Get exact spatial bounds for EPSG:3347
-        e = f['geometry/theoretical_easting'][:]
-        n = f['geometry/theoretical_northing'][:]
 
+    # ---------------------------------------------------------
+    # FRESH AUTHENTICATION (Prevents Token Timeouts)
+    # ---------------------------------------------------------
+    print(f"[{tile_id}] Connecting to Planetary Computer for fresh tokens...")
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier=planetary_computer.sign_inplace,
+    )
+
+    with h5py.File(h5_path, 'r') as f:
+        tile_grp = f[tile_id]
+        
+        # Setup the GeoBox
+        e = tile_grp['coords/theoretical_easting'][:]
+        n = tile_grp['coords/theoretical_northing'][:]
+        lons = tile_grp['coords/theoretical_lon'][:]
+        lats = tile_grp['coords/theoretical_lat'][:]
+        
         transform = Affine.translation(e.min(), n.max()) * Affine.scale(90, -90)
         height, width = e.shape
         geobox = GeoBox(shape=(height, width), affine=transform, crs="EPSG:3347")
-        print(f"Confirmed: Shape is {geobox.shape}")
-        print(f"Confirmed: Resolution is {geobox.resolution}")
         
-        # Extract lon/lat for STAC search
-        lons = f['geometry/theoretical_lon'][:]
-        lats = f['geometry/theoretical_lat'][:]
-        min_lon, max_lon = lons.min(), lons.max()
-        min_lat, max_lat = lats.min(), lats.max()
+        # Setup Temporal Bounds
+        days_grp = tile_grp['days']
+        day_keys = sorted(days_grp.keys())
+        if not day_keys: return None, {}
         
-        # Get temporal bounds
-        day_keys = sorted(f['days'].keys())
         fire_year = int(f.attrs['year'])
-        start_dob = int(f['days'][day_keys[0]].attrs['DOB'])
-        end_dob = int(f['days'][day_keys[-1]].attrs['DOB'])
+        start_dob = int(days_grp[day_keys[0]].attrs['DOB'])
+        end_dob = int(days_grp[day_keys[-1]].attrs['DOB'])
 
-    # Search window: start 1 month (30 days) before fire, end 2 days after
     max_lookback_days = 30
     start_date = datetime(fire_year, 1, 1) + timedelta(days=start_dob - max_lookback_days)
     end_date = datetime(fire_year, 1, 1) + timedelta(days=end_dob + 1)
 
-    print(f'Fire {h5_path} metadata acquired.')
-
     # ---------------------------------------------------------
     # STAC API Retry Loop
     # ---------------------------------------------------------
-    max_api_retries = 5
     items = []
-    
+    max_api_retries = 5
     for attempt in range(max_api_retries):
         try:
-            print(f"Querying Planetary Computer (Attempt {attempt + 1})...")
-            
             search = catalog.search(
                 collections=["sentinel-2-l2a"],
-                bbox=[min_lon - 0.1, min_lat - 0.1, max_lon + 0.1, max_lat + 0.1],
-                datetime=f"{start_date.date()}/{end_date.date()}",
-                # query={"eo:cloud_cover": {"lte": threshold}}
+                bbox=[lons.min() - 0.1, lats.min() - 0.1, lons.max() + 0.1, lats.max() + 0.1],
+                datetime=f"{start_date.date()}/{end_date.date()}"
             )
             items = list(search.items())
-            
-            print(f"Search done! Found {len(items)} items.")
             break  
-            
         except Exception as e:
-            print(f"\n[!] STAC API timeout/error on attempt {attempt + 1}")
-            if attempt < max_api_retries - 1:
-                wait_time = (attempt + 1) * 15  
-                print(f"Azure Front Door is congested. Waiting {wait_time}s to retry...")
-                time.sleep(wait_time)
+            if attempt < max_api_retries - 1: 
+                time.sleep((attempt + 1) * 10)
             else:
-                print("Max STAC API retries reached. Moving to next task.")
-                raise e 
+                print(f"[{tile_id}] STAC API Failed.")
+                return None, {}
 
-    if not items:
-        return None, {}
+    if not items: return None, {}
 
+    # ---------------------------------------------------------
+    # Initial Lazy Load Setup
+    # ---------------------------------------------------------
     dataset = odc.stac.load(
         items,
         bands=bands,
@@ -90,32 +88,29 @@ def get_fire_master_cube(h5_path, catalog, bands):
         groupby="id",
         chunks={'time': 1, 'x': width, 'y': height}
     )
+    stack_da = dataset.to_array(dim="band").transpose("time", "band", "y", "x")
 
-    # Cast to float32 and convert to (Time, Band, Y, X) DataArray
-    stack_da = dataset.astype(np.float32).to_array(dim="band").transpose("time", "band", "y", "x")
-
-    print(f"Stacking done. Stack Shape: {stack_da.shape}")
     print(f"Estimated Size in RAM: {stack_da.nbytes / (1024**2):.2f} MB")
-
+    print(f"Downloading Master Cube: {stack_da.shape} (Time, Bands, H, W)...")
+    print("Object Type:", type(stack_da))
+    print("Data Type:  ", stack_da.dtype)
+    
     # ---------------------------------------------------------
     # Dask Threading (Download Compute with Retries)
     # ---------------------------------------------------------
-    print(f"Downloading Master Cube: {stack_da.shape} (Time, Bands, H, W)...")
-    
     max_retries = 3
     cube = None
     download_success = False
     
     with dask.config.set(scheduler='threads', num_workers=8):
-        
         for attempt in range(max_retries):
             try:
-                print(f"Download Attempt {attempt + 1}...")
+                print(f"[{tile_id}] Download Attempt {attempt + 1}...")
                 with ProgressBar():
                     cube = stack_da.compute()            
                 
                 if cube is not None:
-                    print("Download successful!")
+                    print(f"[{tile_id}] Download successful!")
                     download_success = True
                     break 
                     
@@ -127,11 +122,12 @@ def get_fire_master_cube(h5_path, catalog, bands):
                     time.sleep(wait_time)
                 else:
                     print("[!] Max optimistic retries exhausted. Preparing for fallback...")
-                    # raise e
-        
-        # THE 404 OVERHEAD FALLBACK (Only runs if the optimistic attempts failed)
+
+        # ---------------------------------------------------------
+        # THE 404 OVERHEAD FALLBACK
+        # ---------------------------------------------------------
         if not download_success:
-            print("\n[!] Standard download failed. Initiating 404 overhead scan to drop broken scenes...")
+            print(f"\n[!] Standard download failed for {tile_id}. Initiating 404 overhead scan to drop broken scenes...")
             
             valid_items = []
             for item in tqdm(items, desc="Checking Items"):
@@ -150,7 +146,7 @@ def get_fire_master_cube(h5_path, catalog, bands):
                     print(f"\n[!] SKIPPING BROKEN ITEM: {item.id}")
             
             if not valid_items:
-                print("All items in this search returned 404 or errors.")
+                print("❌ All items in this search returned 404 or errors.")
                 return None, {}
             
             # Rebuild the dataset and stack with ONLY healthy items
@@ -165,20 +161,18 @@ def get_fire_master_cube(h5_path, catalog, bands):
                 groupby="id",
                 chunks={'time': 1, 'x': width, 'y': height}
             )
-            stack_da_clean = dataset_clean.astype(np.float32).to_array(dim="band").transpose("time", "band", "y", "x")
+            stack_da_clean = dataset_clean.to_array(dim="band").transpose("time", "band", "y", "x")
             
-            # One final compute
+            # One final desperate compute
             print("Attempting to download cleaned Master Cube...")
             try:
                 with ProgressBar():
                     cube = stack_da_clean.compute()
                 print("Cleaned download successful!")
             except Exception as e:
-                print("Cleaned download also failed. Max retries exhausted.")
-                raise e
-                    
-    print(f'Download done.')
-    
+                print("❌ Cleaned download also failed. Max retries exhausted.")
+                raise e # Crash the task, because it's genuinely broken.
+
     # ---------------------------------------------------------
     # Map Metadata
     # ---------------------------------------------------------
@@ -188,72 +182,55 @@ def get_fire_master_cube(h5_path, catalog, bands):
         "item_ids": np.array([i.id for i in items])
     }
 
-    return cube.values if cube is not None else None, metadata
+    return cube.values if hasattr(cube, 'values') else cube, metadata
 
-def process_h5_from_cube(h5_path, cube, metadata, bands):
+def process_tile_h5_from_cube(h5_path, tile_id, cube, metadata, bands):
     """
-    Slices the pre-downloaded cube using a Single-Day Fallback strategy.
+    Slices the pre-downloaded cube using the Tiered Single-Day Fallback strategy
+    and saves strictly to the dedicated 'satellite' group with cloud cover metadata.
     """
+    if cube is None: return
+    
     cube_dates = metadata["dates"]
     cube_ccs = metadata["cloud_covers"]
     max_lookback_days = 30
+    threshold_tiers = [40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
 
     with h5py.File(h5_path, 'a') as f:
         fire_year = int(f.attrs['year'])
-        days_grp = f['days']
+        days_grp = f[f"{tile_id}/days"]
         
-        for day_key in tqdm(sorted(days_grp.keys()), desc="Slicing Fire Days"):
+        for day_key in tqdm(sorted(days_grp.keys()), desc=f"Slicing {tile_id}"):
             day_grp = days_grp[day_key]
             current_dob = int(day_grp.attrs['DOB'])
-            
             target_dt = np.datetime64(datetime(fire_year, 1, 1) + timedelta(days=current_dob - 1), 'D')
             
             found_valid_mosaic = False
             final_mosaic = None
             used_day_indices = []
+            idx_first_valid = None
 
-            # Define the cloud coverage tiers
-            threshold_tiers = [40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
-            
-            # ---------------------------------------------------------
-            # Tiered Single-Day Fallback Loop
-            # ---------------------------------------------------------
             for current_threshold in threshold_tiers:
-
                 for lookback in range(max_lookback_days):
-
                     check_dt = target_dt - np.timedelta64(lookback, 'D')
-            
-                    # Find indices for this exact day WHERE the metadata cloud cover 
-                    # is less than or equal to the current threshold tier.
+                    
                     day_indices = [
                         i for i, d in enumerate(cube_dates) 
                         if d == check_dt and cube_ccs[i] <= current_threshold
                     ]
-                    
-                    if not day_indices:
-                        continue  # No satellite pass on this day
+                    if not day_indices: continue
 
-                    # Sort the indices so the tile with the LOWEST metadata cloud cover is at index 0
                     day_indices = sorted(day_indices, key=lambda idx: cube_ccs[idx])
-
-                    # Slice the cube for only this day
                     daily_stack = cube[day_indices]
                     
-                    # Perform Mosaic (stitching tiles from the same day)
-                    mask = ~np.isnan(daily_stack) & (daily_stack != 0)
+                    mask = ~np.isnan(daily_stack)
                     idx_first_valid = np.argmax(mask, axis=0) 
                     
                     rows, cols = np.indices(daily_stack.shape[2:])
                     final_mosaic = np.zeros(daily_stack.shape[1:], dtype=daily_stack.dtype)
-                    
                     for b in range(daily_stack.shape[1]):
                         final_mosaic[b] = daily_stack[idx_first_valid[b], b, rows, cols]
 
-                    # ---------------------------------------------------------
-                    # Evaluate the single-day mosaic
-                    # ---------------------------------------------------------
-                    # STRICT NaN CHECK (Excluding SCL)
                     check_indices = [i for i, b_name in enumerate(bands) if b_name != "SCL"]
                     check_mosaic = final_mosaic[check_indices]
                     
@@ -262,18 +239,16 @@ def process_h5_from_cube(h5_path, cube, metadata, bands):
                         used_day_indices = day_indices
                         break
                 
-                if found_valid_mosaic:
-                    break # Break the threshold loop
+                if found_valid_mosaic: break
 
-            # ---------------------------------------------------------
-            # Handle Results & Save to H5
-            # ---------------------------------------------------------
             if not found_valid_mosaic:
                 if 'satellite' in day_grp:
                     del day_grp['satellite']
-                continue # Skip saving if no good day was found within the lookback days
+                continue
 
+            # ---------------------------------------------------------
             # Calculate stats for the successful day
+            # ---------------------------------------------------------
             stats_list = []
             total_pix = cube.shape[2] * cube.shape[3]
             window_ccs = cube_ccs[used_day_indices]
@@ -290,25 +265,44 @@ def process_h5_from_cube(h5_path, cube, metadata, bands):
                     "acquisition_date": str(cube_dates[global_date_idx])
                 })
 
-            # Save to H5 (Remove the old group and create a fresh one)
+            # ---------------------------------------------------------
+            # Save to H5 inside the dedicated 'satellite' group
+            # ---------------------------------------------------------
             if 'satellite' in day_grp:
                 del day_grp['satellite']
             sat_grp = day_grp.require_group('satellite')
+            
             sat_grp.attrs["cloud_cover_stats"] = json.dumps(stats_list)
+            
             for i, b_name in enumerate(bands):
-                d_name = f"s2_{b_name}"
+                d_name = f"s2_{b_name.lower()}"
                 if d_name in sat_grp: del sat_grp[d_name]
-                # Save the categorical SCL mask as a tiny uint8
+                
                 if b_name == "SCL":
                     sat_grp.create_dataset(d_name, data=final_mosaic[i].astype(np.uint8), compression="lzf")
                 else:
                     sat_grp.create_dataset(d_name, data=final_mosaic[i], compression="lzf")
 
-def run_s2_h5_pipeline(h5_path, catalog, bands):
-
+def run_s2_h5_pipeline(h5_path, bands):
+    """
+    Coordinates downloading and slicing S2 data for all tiles in an H5 file.
+    """
+    
     pipeline_bands = list(bands)
     if "SCL" not in pipeline_bands:
         pipeline_bands.append("SCL")
 
-    cube, metadata = get_fire_master_cube(h5_path, catalog, pipeline_bands)
-    process_h5_from_cube(h5_path, cube, metadata, pipeline_bands)
+    print(f"\n{'='*60}\nRunning Tile-Based Sentinel-2 for: {h5_path.name}")
+
+    with h5py.File(h5_path, 'r') as f:
+        tile_ids = [k for k in f.keys() if k.startswith('tile_')]
+
+    for tile_id in tile_ids:
+        print(f"\n--- Processing {tile_id} ---")
+        
+        # Download
+        cube, metadata = get_tile_master_cube(h5_path, tile_id, pipeline_bands)
+        
+        # Slice and Save
+        if cube is not None:
+            process_tile_h5_from_cube(h5_path, tile_id, cube, metadata, pipeline_bands)

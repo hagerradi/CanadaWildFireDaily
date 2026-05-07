@@ -1,37 +1,12 @@
-# Wildfire Daily Propagation
+# CanadaWildfireDaily: A Large-Scale Dataset for Daily Wildfire Spread in Canada
+[Currently under review]
 
-This repository contains a complete, end-to-end deep learning pipeline for forecasting daily wildfire spread. It processes raw tabular/vector fire perimeters, generates topographical rasters via GDAL, downloads satellite imagery, and trains models to predict future fire boundaries.
+This repository contains the code base for the dataset and the benchmark, CanadaWildFireDaily, a dataset for daily wildfire spread prediction.
 
+![alt text](figures/image.png)
 ---
 
-## Part 1: Data Acquisition & Configuration
-
-To run this project, you must download the core datasets and configure the project to locate them.
-
-### 1.1 Download the Data
-1. **Fire Growth Points:** Download the target year folders from the Open Science Framework.
-   * **Download Link:** [OSF Fire Growth Points](https://osf.io/f48ry/overview)
-2. **Covariates Data:** Download the `Data_Samples` folder containing the necessary weather, fuel, and topography files.
-   * **Download Link:** [Google Drive Data Samples](https://drive.google.com/drive/folders/1j7DQDEBpojiUjJxMKHAAXhGIA1sdNwRe?usp=drive_link)
-
-### 1.2 Directory Structure
-Extract the downloaded files so your raw data directory looks exactly like this:
-```text
-DATA_FOLDER/
-├── DEM_API/
-│   └── DEM_Tiles/
-├── ERA5/
-├── SCANFI/
-│   └── 2020/
-└── Fire_growth_points/
-    ├── Firegrowth_pts_v1_1_2024/   # From OSF
-    ├── Firegrowth_pts_v1_1_2023/   # From OSF
-    ├── Firegrowth_pts_v1_1_2022/   # From OSF
-    ├── Firegrowth_pts_v1_1_2021/   # From OSF
-    └── Firegrowth_pts_v1_1_2020/   # From OSF
-```
-
-### 1.3 Path Configuration (settings.py)
+## 🛠️ Part 1 : Path Configuration (settings.py)
 Before running any scripts, open configs/settings.py. This file acts as the central nervous system for the pipeline. You must update the following three variables with their **absolute** paths on your machine:
 
 * `PROJECT_FOLDER`: The absolute path to the root repository folder that contains all of the code (e.g., the src, configs, and data_preparation directories).
@@ -42,7 +17,7 @@ Before running any scripts, open configs/settings.py. This file acts as the cent
 
 ---
 
-## Part 2: Environment Setup
+## ⚙️ Part 2: Environment Setup
 
 ### 2.1 Virtual Environment
 Create and activate a fresh Python virtual environment:
@@ -63,187 +38,109 @@ Install the required packages:
 pip install -r requirements.txt
 ```
 
-### 2.3 GDAL Installation (Topography Generation)
-Exceptionally, building the raw topography rasters requires the **Geospatial Data Abstraction Library (GDAL)**. Because GDAL has complex system-level dependencies, creating a dedicated Conda environment is the most stable and recommended approach.
+## 📂 Part 3: Samples Generation
 
-You can use the following pipeline to install Miniconda, speed up the solver, and install GDAL safely:
+This is the final data preparation step before model training. At this stage, you have two options: you can either use our pre-compiled samples directly, or you can run this script to generate them from scratch using the raw data.
 
-**1. Download and Install Miniconda (If not already installed)**
-```bash
-wget https://repo.anaconda.com/miniconda/Miniconda3-py310_22.11.1-1-Linux-x86_64.sh
-bash Miniconda3-py310_22.11.1-1-Linux-x86_64.sh
-
-source ~/.bashrc
+### Option 1: Use Pre-compiled Samples (Recommended)
+If you want to skip the data generation process and jump straight to training, you can use our finalized samples.
+Samples can be downloaded from [here](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily-v1/tree/main/data_samples)
+Place them inside the `SAMPLES` folder defined in your `settings.py`, following this exact structure:
+```text
+SAMPLES/
+   ├── train/
+   ├── val/
+   └── test/
 ```
 
-**2. Configure the Fast Libmamba Solver**
-Standard Conda can be very slow when resolving spatial libraries. Set up `libmamba` to make the installation incredibly fast:
-```bash
-conda install -n base conda-libmamba-solver
-conda config --set solver libmamba
+### Option 2: Generate Samples from Scratch
+If you prefer to run the sample generation process yourself, this script will read the raw daily `.h5` files and the JSON tile mappers to compile the finalized samples. 
+
+> ⚠️ **Important Data Requirements:** > To run this process, you must have the `.h5` files, the JSON mappers (fires metadata), and the raw Fire Growth CSV files. All of these raw data files are provided in our Hugging Face repository in the `raw_data` folder: [CanadaWildFireDaily-v1](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily-v1).
+
+Make sure to organize the downloaded files according to the directories defined in your `settings.py`:
+
+**1. Fire Growth CSVs:** Place these in your `BASE_FOLDER`. The structure must look exactly like this:
+```text
+└── BASE_FOLDER/
+    ├── Firegrowth_pts_v1_1_2024/Firegrowth_pts_v1_1_2024.csv
+    ├── Firegrowth_pts_v1_1_2023/Firegrowth_pts_v1_1_2023.csv
+    ├── Firegrowth_pts_v1_1_2022/Firegrowth_pts_v1_1_2022.csv
+    ├── Firegrowth_pts_v1_1_2021/Firegrowth_pts_v1_1_2021.csv
+    └── Firegrowth_pts_v1_1_2020/Firegrowth_pts_v1_1_2020.csv
 ```
 
-**3. Create the Environment and Install GDAL**
-Create the environment and install GDAL alongside the required spatial Python libraries from `conda-forge`:
-```bash
-# Create and activate the environment
-conda create -p conda_wildfires_env python=3.10
-conda activate conda_wildfires_env
-
-# Install GDAL and spatial dependencies
-conda install -c conda-forge gdal rasterio pyproj pandas numpy
+**2. JSON Mappers:** Place these in your `METADATA_FOLDER`.
+```text
+└── METADATA_FOLDER/
+    ├── tile_dob_mapper_2024.json
+    ├── tile_dob_mapper_2023.json
+    ├── tile_dob_mapper_2022.json
+    ├── tile_dob_mapper_2021.json
+    └── tile_dob_mapper_2020.json
 ```
 
-**4. Verify the Installation**
-Ensure the GDAL command-line tools are recognized by your system:
-```bash
-gdalwarp --version
-gdaldem --version
-```
+**3. H5 Files:** Place these in your `H5_OUTPUT_FOLDER`.
 
-### 2.4 Google Earth Engine Authentication
-The Features Generation pipeline (specifically for downloading `fuel_viirs` data) requires access to Google Earth Engine via the Python API. 
+This step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
 
-**Option A: Local Environment Setup**
-If you are running this on a personal laptop or desktop with a web browser:
-1. With your Python virtual environment activated, run:
-```bash
-earthengine authenticate
-```
-2. The terminal will output a URL. Open it in your browser, log in using a Google account registered for Earth Engine, and paste the authorization token back into your terminal.
-
-**Option B: Remote / HPC Cluster Setup (Headless)**
-If you are running this on a distant environment (like a SLURM cluster) without a web browser, you must authenticate locally first and securely transfer your token.
-
-1. **Authenticate Locally:** Run `earthengine authenticate` on your personal laptop.
-2. **Locate the Credentials File:** 
-    * Mac/Linux: `~/.config/earthengine/credentials`
-    * Windows: `C:\Users\YourName\.config\earthengine\credentials`
-3. SSH into your cluster and create a secure, hidden directory:
-   ```bash
-   mkdir -p ~/.config/earthengine/
-   chmod 700 ~/.config/earthengine/
-   ```
-4. **Transfer the Token:** Use Secure Copy (`scp`) from your local laptop terminal to push the file to your cluster (replace the paths/usernames with your own):
-```bash
-scp "C:/Users/YourName/.config/earthengine/credentials" username@login.server.edu:~/.config/earthengine/
-```
-5. **Lock Down the File:** Ensure only your user account has permission to read the token:
-```bash
-chmod 600 ~/.config/earthengine/credentials
-```
-
-**Configuring the GEE Cloud Project:**
-Google Earth Engine now requires a registered Cloud Project to route API requests. In our codebase, the GEE initialization is set up like this:
-```python
-ee.Initialize(project='widlfires-vegetation')
-```
-* **External Users:** You must [create your own GEE Cloud Project](https://developers.google.com/earth-engine/cloud/earthengine_cloud_project_setup). Once created, simply update the `project='...'` parameter in the features generation scripts (`fuel_viirs.py`) to match your new Project ID.
-
----
-
-## Part 3: Raw Data Preprocessing (Topography)
-Before we can build our dataset, we need to generate uniform topographical grids for every fire. This pipeline uses GDAL to crop a massive DEM mosaic, project it to EPSG:3347 (Meters), calculate Slope and Aspect, and create an averaged 3x3 background DEM.
-
-### 3.1 Build the DEM Mosaic (VRT)
-First, you need to stitch all of your individual downloaded DEM tiles into a single Virtual Raster (VRT). This allows the Python script to seamlessly crop fire boxes that overlap multiple tile boundaries.
-
-Activate your GDAL Conda environment and run the build command at the same directory level as your DEM_Tiles folder (typically inside DATA_FOLDER/DEM_API/):
-
-```bash
-# Activate the GDAL environment you created in Part 2
-conda activate conda_wildfires_env
-
-# Navigate to the folder containing DEM_Tiles
-cd /path/to/your/DATA_FOLDER/DEM_API/
-
-# Build the Virtual Raster
-gdalbuildvrt dem_mosaic.vrt DEM_Tiles/*.tif
-```
-
-### 3.2 Generate the Fire Topography
-Now, navigate back to your PROJECT_FOLDER (the root of this repository) to run the GDAL generation script. You must pass the target year as an argument.
+To generate the dataset, run the following command from the root of your project:
 
 ```bash
 cd /path/to/your/PROJECT_FOLDER/
 
-# Run the GDAL pipeline for a specific year
-python -m data_preparation.raw_data_preprocessing.topography_rasters 2024
+python -m samples_generation.data_generator_main --config configs/default.yaml --type simple
 ```
 
-**Note:** You must run this command for all target years in your dataset (e.g., 2020, 2021, 2022, 2023, 2024).
-
----
-
-## Part 4: Data Preparation (The H5 Pipeline)
-
-Once the raw rasters are generated, the data is packaged into structured `.h5` files. This is split into three sequential steps to ensure data integrity and memory efficiency.
-
-### 4.1 Features Generation (Base H5 Grids)
-This script constructs the foundational `.h5` file for each fire. It precisely maps daily weather forcing (ERA5), fuel data, and the topographical rasters generated in Part 3 onto a standardized 2D spatial grid.
-
-Run the script by providing the target year and an optional filter list:
-```bash
-python -m data_preparation.features_generation.grid_main 2024 /path/to/fire_ids_256_5_years.npy
-```
+### Script Arguments:
+* `--config`: The path to your configuration file (e.g., `configs/default.yaml`).
+* `--type`: The formatting style of the generated samples. 
+  * `choices=["simple", "timeseries"]`
+  * **`simple`**: Generates standard single-step spatial inputs (Day $T \rightarrow$ Predict Day $T+1$). Best for standard U-Net architectures.
+  * **`timeseries`**: Generates sequential temporal inputs (e.g., Days $T, T+1, T+2 \rightarrow$ Predict Day $T+3$). Best for spatio-temporal architectures like ConvLSTM.
 
 **Key Execution Notes:**
-* **Target Years:** You must run this command for **all target years** in your dataset (e.g., 2020 through 2024).
-* **The ID Filter (Optional):** The `fire_ids_256_5_years.npy` file contains a pre-filtered list of fire IDs that are guaranteed to physically fit inside the 256x256 grid boundaries. If you do not specify this path, the script will default to generating grids for **all** fires in that year.
-* **Parallel Processing (Recommended):** Generating these dense 3D/4D `.h5` files is heavily I/O bound. We highly recommend running this step in parallel using a cluster (e.g., via a SLURM job array). During our testing, processing batches of 10 fires per parallel job yielded optimal performance.
+* **Dataset Normalization:** During generation, the script automatically calculates the global mean and standard deviation for all features across the training split and saves a `.json` file. This ensures the validation and test sets are normalized exclusively using training statistics.
+* **Output Location:** The script saves each generated sample as an individual PyTorch (`.pt`) file inside designated split subfolders (e.g., `train`, `val`, `test`) within either your `SAMPLE_FOLDER` or `TIMESERIES_SAMPLE_FOLDER`. Each file contains a dictionary with the following:
+  * `x`: The input features.
+  * `y`: The ground truth target mask.
+  * `delta_t`: The satellite image age in days (included for `simple` samples only).
+  * `positions`: The sequence positions (included for `timeseries` samples only).
+* **Optimization Note:** It is possible to build a PyTorch Dataset that reads directly from the raw daily `.h5` files during training using the code provided in `samples_generation/data_generator.py` and `samples_generation/data_generator_timeseries.py`. However, we pre-compute and save these ready-to-batch `.npz` arrays purely for optimization purposes to significantly accelerate the training loop and maximize GPU utilization.
 
+## 🤖 Part 4: Modeling
 
-### 4.2 Satellite Generation (Sentinel-2 Imagery)
-This script queries the Microsoft Planetary Computer to download Sentinel-2 multispectral imagery (B01-B12) that aligns spatially and temporally with the grids generated in 4.1. It directly appends the new `satellite/` group and Cloud Cover statistics into the existing `.h5` files.
+With the samples available, the model is ready to train.
 
-Run the script by providing the target year and the optional filter list:
-```bash
-python -m data_preparation.satellite_generation.satellite_main 2024 /path/to/fire_ids_256_5_years.npy
-```
-
-**Key Execution Notes:**
-* **Parallel Execution (1 Fire per Job):** We highly recommend launching this step via a SLURM job array, allocating exactly **one fire per parallel job**. This maximizes download throughput.
-* **API Throttling & Fault Tolerance:** Because we are sending thousands of requests to the Planetary Computer STAC API, connections can occasionally be throttled, dropped, or timed out. 
-* **Resumability (Status Tracking):** To handle dropped connections, the script uses a marker system. It writes empty trace files (`success_{fire_id}.txt` or `fail_{fire_id}.txt`) to the `SATELLITE_STATUS_FOLDER`. 
-  * If your pipeline crashes or times out due to API limits, you can simply re-run the exact same SLURM script. The code will instantly bypass successful fires, delete the fail flags of the broken ones, and retry the downloads automatically.
-
-
-### 4.3 Quality Control & Diagnosis
-Wildfire datasets rely on overlapping multiple different data sources, which can occasionally contain missing features or corrupted pixels (`NaN`/`Inf`). This script scans every fully-built `.h5` file and performs a rigorous pixel-by-pixel check across all static and dynamic features.
-
-Run the diagnosis script:
-```bash
-python -m data_preparation.diagnosis.quality_diagnosis
-```
-
-**Key Execution Notes:**
-* **Dynamic Mask Injection:** If a specific day contains any corrupted or missing data, the script generates and embeds a binary `quality_mask` (where `1 = bad pixel`) directly into that day's group within the `.h5` file.
-* **Storage Efficiency:** To save disk space, perfectly clean days do not receive a mask. The PyTorch Dataloader is programmed to assume a day is perfectly clean unless it finds a `quality_mask` present.
-* **Model Integration:** During training, the samples builder will automatically detect these `quality_mask` flags and skip corrupted days, ensuring the model is only fed complete data.
-
----
-
-## Part 5: Modeling
-
-With the `.h5` dataset prepared, the model is ready to train.
-
-### 5.1 Configuration (`configs/default.yaml`)
+### 4.1 Configuration (`configs/default.yaml`)
 All training hyperparameters, hardware settings, and logging preferences are centralized in `configs/default.yaml`. Before training, you can adjust this file to suit your needs.
 
-### 5.2 Model Selection & Customization
-Multiple model architectures are implemented in the `src/models/` directory:
-1. **`UNet`**: Standard baseline Spatial UNet.
-2. **`SpatiotemporalUNet`**: UNet with a **ConvLSTM** bottleneck for recurrent time-series processing.
-3. *(More to be added ...)*
+### 4.2 Model Selection & Customization
+Multiple model architectures are implemented in the `src/models/` directory to handle different temporal and spatial requirements. 
 
-To switch between architectures or dataloaders (e.g., swapping from single-day static prediction to 3-day sliding window forecasting), open `src/train.py` and comment/uncomment the respective dataloader and model initializations. 
+To switch between architectures (which will automatically configure the corresponding dataloaders, such as swapping from single-day static prediction to a 3-day sliding window), open your `configs/default.yaml` and update the `architecture` parameter under the `model` section to one of the following options:
 
-### 5.3 Training the Model
+1. **Standard UNet** (`architecture: 'unet'`): 
+   The baseline spatial U-Net model.
+2. **Age-Encoding UNet** (`architecture: 'unet_age'`): 
+   A U-Net that explicitly encodes the satellite age (the time gap in days between the fire event and the satellite acquisition).
+3. **Spatiotemporal UNet** (`architecture: 'unet_convlstm'`): 
+   A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
+4. **Attention UNet** (`architecture: 'unet_attention'`): 
+   A U-Net utilizing attention gates in the skip connections to help the model focus on the most critical spatial features and suppress irrelevant background noise.
+5. **UNet-SegFormer** (`architecture: 'unet_segformer'`): 
+   A hybrid vision-transformer architecture that replaces the standard CNN encoder with SegFormer's Mix Vision Transformer (MiT), paired with a standard U-Net decoder for heavy pixel-level accuracy. 
+6. **UT-AE** (`architecture: 'utae'`):
+   A temporal attention encoder-decoder baseline adapted from the ICCV 2021 U-TAE model for satellite image time series. This baseline uses the time-series offline samples from `Timeseries_Samples/`, and the generator now stores sequence positions for the temporal attention encoder when you regenerate those samples.
+
+### 4.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
 
 To run the training loop locally:
 ```bash
-python main.py --config configs/default.yaml
+cd /path/to/your/PROJECT_FOLDER/
+
+python -m main --config configs/default.yaml
 ```
 
 **Key Training Features:**
@@ -251,7 +148,31 @@ python main.py --config configs/default.yaml
 * **Automatic Checkpointing:** The `Trainer` monitors the Validation IoU. Whenever the model improves, it automatically overwrites and saves `best_checkpoint.pt` to your configured `checkpoint_dir`.
 * **Comet.ml Integration:** If `enabled: true` in your config, the pipeline will automatically log learning rates, loss curves, and epoch-by-epoch evaluation metrics directly to your Comet dashboard. It also uploads visual grid predictions at the end of epochs so you can watch the model learn.
 
-### 5.4 Automatic Evaluation (Testing)
+### 4.4 Automatic Evaluation (Testing)
 At the end of the `train` loop, `main.py` automatically looks for the `best_checkpoint.pt` generated during training. 
 
-If found, it initiates the `test()` protocol on the holdout test split. This step computes the final unbiased Macro IoU, F1 scores, Precision, and Recall. Furthermore, it uploads high-resolution 4-pane visual predictions (Previous Fire Mask, Ground Truth, Model Prediction, and Probability Heatmap) to CometML for your final visual analysis.
+If found, it initiates the `test()` protocol on the holdout test split. This step computes the final metrics. Furthermore, it uploads high-resolution visual predictions (Previous Fire Mask, Ground Truth, Model Prediction) to CometML for your final visual analysis.
+
+### 4.5 Logistic Regression Baseline
+
+This repository also includes an additive classical logistic-regression baseline. It is separate from the PyTorch trainer, reads the precomputed simple samples from `SAMPLE_FOLDER/{train,val,test}`, ignores `delta_t`, extracts a configurable spatial patch around each pixel, and trains `sklearn.linear_model.SGDClassifier(loss="log_loss")`.
+
+Following the approah in Next Day Wildfire Spread [Huot et al], the baseline performs search over the no-fire class-weight multiplier `W` configured in `training.w_values`. The number of SGD epochs is a fixed config input (`training.epochs`) and is not part of the hyperparameter search. The selected model is the one with the highest validation AUC-PR.
+
+```bash
+python -m logistic_regression_main --config configs/logistic_regression.yaml
+```
+
+For a quick wiring check:
+
+```bash
+python -m logistic_regression_main --config configs/logistic_regression_smoke.yaml
+```
+
+On a SLURM cluster:
+
+```bash
+sbatch slurm_logistic_regression.sbatch
+```
+
+Set `WILDFIRE_SAMPLE_FOLDER=/path/to/Samples` to avoid editing `configs/settings.py`, or set `data.sample_folder` directly in the logistic-regression config. Outputs include `w_sweep_metrics.csv/json`, `final_metrics.json`, `model.joblib`, `scaler.joblib`, and the feature manifest. Reported metrics include `auc_pr`, `average_precision` (AP), IoU, Dice/F1, precision, recall, and accuracy.

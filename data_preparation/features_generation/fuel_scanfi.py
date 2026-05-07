@@ -1,45 +1,42 @@
 from pathlib import Path
-from tqdm import tqdm
-import time
 import numpy as np
 import rioxarray
 import xarray as xr
-from pyproj import Transformer
 import h5py
 
 SCANFI_VARS = {
-    'Biomass': 'SCANFI_att_biomass_SW',
-    'Closure': 'SCANFI_att_closure_SW',
-    'prcC': 'SCANFI_sps_prcC_other_SW',
-    'prcB': 'SCANFI_sps_prcB_SW'
+    'Biomass': 'SCANFI_att_biomass',
+    'Closure': 'SCANFI_att_closure',
+    'prcC': 'SCANFI_spsCC_otherConiferous',
+    'prcB': 'SCANFI_spsCC_broadleaf'
 }
-SCANFI_KEYWORDS = ['biomass', 'closure', 'prcC', 'prcB']
 
-def extract_scanfi_for_grid(tif_path, lon_grid, lat_grid):
-    """
-    Extracts 2D grid data from a large TIFF file efficiently by cropping first.
+def extract_scanfi_for_grid(tif_path, easting_grid, northing_grid):
+    """Extracts 2D grid data from a 90m TIFF file directly.
+    NO TRANSFORMATION APPLIED. Assumes grids and TIF share the exact same CRS.
+
+    Args:
+      tif_path: path of the TIF file for a specific feature
+      easting_grid: the easting coordinates 2D grid
+      northing_grid: the northing coordinates 2D grid
+
+    Returns: the feature grid
+
     """
     with rioxarray.open_rasterio(tif_path) as da:
         
-        # Setup Transformer
-        transformer = Transformer.from_crs("EPSG:4269", da.rio.crs, always_xy=True)
-        
-        # Transform the entire 2D grid to the Raster's CRS
-        target_x, target_y = transformer.transform(lon_grid, lat_grid)
-        
-        # Crop the raster to the fire's extent
-        # Add a 200m buffer
+        # Crop the raster to the fire's extent using the raw coordinates
         buffer = 200
-        min_x, max_x = target_x.min() - buffer, target_x.max() + buffer
-        min_y, max_y = target_y.min() - buffer, target_y.max() + buffer
+        min_x, max_x = easting_grid.min() - buffer, easting_grid.max() + buffer
+        min_y, max_y = northing_grid.min() - buffer, northing_grid.max() + buffer
         
         da_cropped = da.rio.clip_box(minx=min_x, miny=min_y, maxx=max_x, maxy=max_y)
         
-        # Create 2D Xarray coordinates
-        x_coords = xr.DataArray(target_x, dims=("y", "x"))
-        y_coords = xr.DataArray(target_y, dims=("y", "x"))
+        # Create 2D Xarray coordinates directly from the EPSG:3347 grids
+        x_coords = xr.DataArray(easting_grid, dims=("y", "x"))
+        y_coords = xr.DataArray(northing_grid, dims=("y", "x"))
         
-        # Sample the cropped raster at the grid points
+        # Sample the cropped raster at the exact grid points
         sampled = da_cropped.sel(x=x_coords, y=y_coords, method="nearest").compute()
         
         # Extract the numpy array
@@ -48,62 +45,18 @@ def extract_scanfi_for_grid(tif_path, lon_grid, lat_grid):
         
         return sampled.values
     
-def run_static_scanfi_pipeline(h5_folder, scanfi_folder, current_year="2020"):
-    
-    h5_files = list(Path(h5_folder).glob("*.h5"))
-    
-    year_folder = Path(scanfi_folder) / current_year
-    
-    for h5_path in tqdm(h5_files):
-            
-        print(f"\n{'='*60}\nProcessing Static SCANFI for: {h5_path.name}")
-
-        start_scanfi = time.time()
-        
-        with h5py.File(h5_path, "a") as f:
-            
-            # Get coordinates
-            lon_grid = f['geometry/theoretical_lon'][:]
-            lat_grid = f['geometry/theoretical_lat'][:]
-
-            fire_id = f.attrs['fire_id']
-            
-            # Create static features bloc if not existing
-            if 'static_features' not in f:
-                static_grp = f.create_group('static_features')
-            else:
-                static_grp = f['static_features']
-            
-            # Loop on SCANFI variables
-            for key, file_prefix in SCANFI_VARS.items():
-                
-                var_name = key.lower()  # e.g., 'biomass'
-                
-                # Fetch the SCANFI rasters
-                matching_files = list(year_folder.glob(f"*{file_prefix}*_90m_v2.tif"))
-                
-                if not matching_files:
-                    print(f"Skipping {var_name}: No TIF found matching '{file_prefix}'.")
-                    continue
-                
-                tif_path = matching_files[0]
-                    
-                print(f"Extracting {var_name} from {tif_path.name}...")
-                
-                # Fetch the 2D array
-                grid_data = extract_scanfi_for_grid(tif_path, lon_grid, lat_grid)
-
-                #### TEMP
-                grid_data = np.nan_to_num(grid_data, nan=0.0)
-                
-                # Save to HDF5
-                static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
-                
-                print(f"Saved {var_name}.")
 
 def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
-    """
-    Processes SCANFI fuel data for a single H5 fire file.
+    """Tile-Based Architecture.
+    Processes static SCANFI fuel data from the PREVIOUS year (T-1) using pre-projected 90m TIFs.
+
+    Args:
+      h5_path: the file of the fire's H5 file
+      scanfi_folder: the folder containing the scanfi TIFs
+      current_year: the year of the scanfi maps
+
+    Returns:
+
     """
     h5_path = Path(h5_path)
     if not h5_path.exists():
@@ -112,47 +65,55 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
     
     year_folder = Path(scanfi_folder) / current_year
     
-    print(f"\n{'='*60}\nProcessing Static SCANFI for: {h5_path.name}")
+    print(f"\n{'='*60}")
+    print(f"Loading pre-fire SCANFI fuel data from {current_year}...")
+
+    if not year_folder.exists():
+        print(f"CRITICAL ERROR: SCANFI folder for {current_year} not found at {year_folder}")
+        return
 
     with h5py.File(h5_path, "a") as f:
-        # Get coordinates from the fire-specific grid
-        lon_grid = f['geometry/theoretical_lon'][:]
-        lat_grid = f['geometry/theoretical_lat'][:]
-        fire_id = f.attrs.get('fire_id', h5_path.stem)
-
-        # Create static features group if not existing
-        if 'static_features' not in f:
-            static_grp = f.create_group('static_features')
-        else:
-            static_grp = f['static_features']
+        tile_ids = [k for k in f.keys() if k.startswith('tile_')]
         
-        # Loop on SCANFI variables (Biomass, etc.)
+        if not tile_ids:
+            print("No tiles found in this H5 file. Skipping.")
+            return
+
         for key, file_prefix in SCANFI_VARS.items():
             var_name = key.lower()
             
-            # Find the specific TIF for this variable
-            matching_files = list(year_folder.glob(f"*{file_prefix}*_90m_v2.tif"))
+            # Find the 90m TIF
+            all_files = list(year_folder.glob(f"*{file_prefix}*_90m.tif"))
+            matching_files = all_files
             
             if not matching_files:
-                print(f"Skipping {var_name}: No TIF found matching '{file_prefix}' in {year_folder}.")
+                print(f"Skipping {var_name}: No valid 90m TIF found for '{file_prefix}' in {year_folder}.")
                 continue
             
             tif_path = matching_files[0]
-            
-            # If the dataset already exists in this fire file, we overwrite/re-create it
-            if var_name in static_grp:
-                del static_grp[var_name]
+            print(f"--- Extracting {var_name} from {tif_path.name} ---")
+
+            for tid in tile_ids:
+                tile_grp = f[tid]
+                if 'static_features' not in tile_grp:
+                    static_grp = tile_grp.create_group('static_features')
+                else:
+                    static_grp = tile_grp['static_features']
+
+                # Grab the EPSG:3347 coordinates
+                easting_grid = tile_grp['coords/theoretical_easting'][:]  
+                northing_grid = tile_grp['coords/theoretical_northing'][:] 
+
+                # Extract the 2D array
+                grid_data = extract_scanfi_for_grid(tif_path, easting_grid, northing_grid)
                 
-            print(f"Extracting {var_name} from {tif_path.name}...")
-            
-            # Fetch the 2D array
-            grid_data = extract_scanfi_for_grid(tif_path, lon_grid, lat_grid)
+                # Safecty check: Convert to float32
+                grid_data = grid_data.astype(np.float32)
 
-            #### TEMP
-            grid_data = np.nan_to_num(grid_data, nan=0.0)
-            
-            # 5. Save to HDF5
-            static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
-            print(f"Saved {var_name}.")
+                # Save to HDF5
+                if var_name in static_grp:
+                    del static_grp[var_name]
+                
+                static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
 
-    print(f"Successfully processed SCANFI for {h5_path.name}")
+    print(f"Successfully processed all SCANFI tiles for {h5_path.name}")

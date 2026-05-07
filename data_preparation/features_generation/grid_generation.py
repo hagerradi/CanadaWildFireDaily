@@ -1,9 +1,6 @@
-import sys
 import os
-from pathlib import Path
 import pandas as pd
 import numpy as np
-import math
 from pyproj import Transformer
 from timezonefinder import TimezoneFinder
 import pytz
@@ -11,6 +8,16 @@ from datetime import datetime, timedelta
 import h5py
 
 def local_to_utc(row, tf, lon_col, lat_col):
+    """
+
+    Args:
+      row: the dataframe row
+      tf: the timezone finder
+      lon_col: the name of the longitude column
+      lat_col: the name of the latitude column
+
+    Returns: the new dataframe with the dates columns
+    """
     
     if pd.isna(row[lat_col]) or pd.isna(row[lon_col]) or pd.isna(row['DOB']):
         return pd.Series([None, None, None, None])
@@ -34,209 +41,166 @@ def local_to_utc(row, tf, lon_col, lat_col):
         noon_local.astimezone(pytz.utc).isoformat()[:19]
     ])
 
-def get_global_grid_params(df, fire_id, grid_size=256, pixel_size=90, x_col='easting', y_col='northing', min_overlap=0.1):
-    
-    fire_df = df[df["ID"] == fire_id]
-    
-    # Get the absolute bounds (Just like in analyze_point_fit)
-    x_min, x_max = fire_df[x_col].min(), fire_df[x_col].max()
-    y_min, y_max = fire_df[y_col].min(), fire_df[y_col].max()
-    
-    # Calculate the exact width and height in meters
-    width_m = x_max - x_min
-    height_m = y_max - y_min
-    
-    # Calculate the true geometric center (Midpoint)
-    x_center = x_min + (width_m / 2.0)
-    y_center = y_min + (height_m / 2.0)
+def append_tile_coordinates(df, grid_size=256, pixel_size=90, x_col='easting', y_col='northing'):
+    """Calculates the global tile IDs and local 0-255 pixel coordinates
+    for every row in the dataframe, appending them as new columns.
 
-    # Calculate multipliers using the exact width/height
-    # (No need to multiply by 2 anymore, because width_m is already the full span)
-    mult_x = max(1, math.ceil(width_m / (grid_size * pixel_size)))
-    mult_y = max(1, math.ceil(height_m / (grid_size * pixel_size)))
+    Args:
+      df: dataframe
+      grid_size:  the grid size (Default value = 256)
+      pixel_size:  the pixel size (Default value = 90)
+      x_col:  the name of the X column (Default value = 'easting')
+      y_col:  the name of the Y column (Default value = 'northing')
 
-    # print(f"Grid Multipliers {fire_id}: {mult_x}, {mult_y}")
+    Returns: the new dataframe with the columns related to the tiles
+
+    """
+    df_mapped = df.copy()
+    tile_span_m = grid_size * pixel_size
     
-    base_grid_x = mult_x * grid_size
-    base_grid_y = mult_y * grid_size
-
-    # Calculate exact padding needed for the lowest overlap you plan to use
-    stride = int(grid_size * (1.0 - min_overlap))
+    # Calculate Tile Columns and Rows
+    df_mapped['tile_col'] = np.floor(df_mapped[x_col] / tile_span_m).astype(int)
+    df_mapped['tile_row'] = np.floor(df_mapped[y_col] / tile_span_m).astype(int)
+    df_mapped['tile_id'] = 'tile_' + df_mapped['tile_col'].astype(str) + '_' + df_mapped['tile_row'].astype(str)
     
-    def get_padding(base_dim):
-        if base_dim <= grid_size:
-            return 0  
-            
-        dist_to_edge = (base_dim - grid_size) / 2.0
-        remainder = dist_to_edge % stride
-        
-        if remainder == 0:
-            return 0
-        else:
-            return int(stride - remainder)
-
-    # Get the padding required PER SIDE
-    pad_x = get_padding(base_grid_x)
-    pad_y = get_padding(base_grid_y)
-
-    # Add the padding symmetrically to both sides (pad * 2)
-    final_grid_x = base_grid_x + (pad_x * 2)
-    final_grid_y = base_grid_y + (pad_y * 2)
-
-    # Define the Master Top-Left Origin using the newly padded dimensions
-    x_min_ref = x_center - (final_grid_x * pixel_size) / 2.0
-    y_max_ref = y_center + (final_grid_y * pixel_size) / 2.0
+    # Calculate Bounding boxes for each pixel's respective tile
+    df_mapped['tile_x_min'] = df_mapped['tile_col'] * tile_span_m
+    df_mapped['tile_y_max'] = (df_mapped['tile_row'] + 1) * tile_span_m
     
-    return {
-        "grid_size_x": final_grid_x,
-        "grid_size_y": final_grid_y,
-        "x_min_ref": x_min_ref,
-        "y_max_ref": y_max_ref
-    }
+    # Calculate Local Pixel Coordinates (0 to 255)
+    df_mapped['pixel_x'] = np.floor((df_mapped[x_col] - df_mapped['tile_x_min']) / pixel_size).astype(int).clip(0, grid_size - 1)
+    df_mapped['pixel_y'] = np.floor((df_mapped['tile_y_max'] - df_mapped[y_col]) / pixel_size).astype(int).clip(0, grid_size - 1)
 
-def initialize_fire_h5(output_folder, fire_id, year, params, pixel_size=90, fill_value=np.nan):
-    file_path = os.path.join(output_folder, f"fire_{fire_id}.h5")
+    return df_mapped
+
+def generate_fire_h5(df, fire_id, output_folder, grid_size=256, pixel_size=90, 
+                     x_col='easting', y_col='northing', lat_col='lat', lon_col='lon', 
+                     fill_value=-9999):
+    """Generates an HDF5 file for a specific fire using the permanent global tile architecture.
+    Structure: /tile_ID / Coords | days / day_XXX / features
+
+    Args:
+      df: the CFSD dataframe
+      fire_id: the id of the fire
+      output_folder: the destination folder of the H5 files
+      grid_size:  the grid size (Default value = 256)
+      pixel_size:  the pixel size (Default value = 90)
+      x_col: the name of the X column (Default value = 'easting')
+      y_col: the name of the Y column (Default value = 'northing')
+      lat_col: the name of the longitude column (Default value = 'lat')
+      lon_col: the name of the latitude column (Default value = 'lon')
+      fill_value:  the filling value for missing data in the firemask (Default value = -9999)
+
+    Returns: the path of the fire's H5 folder
+
+    """
+    fire_df = df[df["ID"] == fire_id].copy()
     
-    grid_x_size = params["grid_size_x"]
-    grid_y_size = params["grid_size_y"]
-    x_min_ref = params["x_min_ref"]
-    y_max_ref = params["y_max_ref"]
+    if fire_df.empty:
+        print(f"No data for Fire ID {fire_id}. Skipping.")
+        return None
 
-    # Initialize the transformer
-    # always_xy=True ensures we use (Easting, Northing) -> (Lon, Lat) order
+    # Apply mapping math using the helper function
+    fire_df = append_tile_coordinates(fire_df, grid_size, pixel_size, x_col, y_col)
+    tile_span_m = grid_size * pixel_size
+
+    # Setup Transformers & Tools
     transformer = Transformer.from_crs("EPSG:3347", "EPSG:4269", always_xy=True)
-
+    tf = TimezoneFinder()
+    
+    file_path = os.path.join(output_folder, f"fire_{fire_id}.h5")
+    env_cols = ['firearea', 'cumuarea']
+    meta_keys = ["DOB"]
+    
+    # Build the HDF5 File
     with h5py.File(file_path, "w") as f:
-        # Global Attributes
+        # File-level metadata
         f.attrs["fire_id"] = fire_id
-        f.attrs["year"] = year
+        f.attrs["year"] = int(fire_df["year"].unique()[0])
         f.attrs["pixel_size"] = pixel_size
         f.attrs["meter_crs"] = "EPSG:3347"
         f.attrs["deg_crs"] = "EPSG:4269"
-        
 
-        # Create Geometry Group
-        geo = f.create_group("geometry")
-        
-        # Logic for 2D Grid
-        res_rows, res_cols = np.indices((grid_y_size, grid_x_size))
-        y_min_ref = y_max_ref - (grid_y_size * pixel_size)
-        
-        theoretical_x = x_min_ref + (res_cols * pixel_size)
-        theoretical_y = y_min_ref + (res_rows * pixel_size)
-
-        # Transforming the full 2D arrays
-        theoretical_lon, theoretical_lat = transformer.transform(theoretical_x, theoretical_y)
-
-        # Save Easting/Northing
-        geo.create_dataset("theoretical_easting", data=theoretical_x, compression="gzip")
-        geo.create_dataset("theoretical_northing", data=theoretical_y, compression="gzip")
-        
-        # Save Lon/Lat
-        geo.create_dataset("theoretical_lon", data=theoretical_lon, compression="gzip")
-        geo.create_dataset("theoretical_lat", data=theoretical_lat, compression="gzip")
-
-        # Create Daily Group
-        f.create_group("days")
-
-    print(f"Initialized H5 for {fire_id} with geometry and coordinate transformation.")
-    
-    return file_path
-
-def add_fire_day_to_h5(file_path, df, fire_id, fireday, params, pixel_size, 
-                       fill_value=-9999, x_col='easting', y_col='northing', 
-                       lat_col='lat', lon_col='lon'):
-    
-    # Features Columns
-    env_cols = ['firearea', 'cumuarea']
-    # Metadata
-    meta_keys = ["DOB"]
-
-    # Filter data for the specific fire and day
-    df_day = df[(df["ID"] == fire_id) & (df["fireday"] == fireday)].copy()
-    
-    grid_x_size = params["grid_size_x"]
-    grid_y_size = params["grid_size_y"]
-    x_min_ref = params["x_min_ref"]
-    y_max_ref = params["y_max_ref"]
-    y_min_ref = y_max_ref - (grid_y_size * pixel_size)
-
-    # Initialize Grids for observations and features
-    # Coordinates (Observed)
-    grid_obs_e = np.full((grid_y_size, grid_x_size), fill_value, dtype=np.float32)
-    grid_obs_n = np.full((grid_y_size, grid_x_size), fill_value, dtype=np.float32)
-    grid_obs_lat = np.full((grid_y_size, grid_x_size), fill_value, dtype=np.float32)
-    grid_obs_lon = np.full((grid_y_size, grid_x_size), fill_value, dtype=np.float32)
-    
-    # Features
-    env_grids = {col: np.full((grid_y_size, grid_x_size), fill_value, dtype=np.float32) for col in env_cols}
-
-    # Map the Real Points onto the Grid
-    if not df_day.empty:
-        # Calculate pixel indices
-        day_cols = np.round((df_day[x_col] - x_min_ref) / pixel_size).astype(int)
-        day_rows = np.round((df_day[y_col] - y_min_ref) / pixel_size).astype(int)
-
-        valid = (day_rows >= 0) & (day_rows < grid_y_size) & (day_cols >= 0) & (day_cols < grid_x_size)
-        
-        t_rows = day_rows[valid].values
-        t_cols = day_cols[valid].values
-
-        # Fill Coordinate Grids
-        grid_obs_e[t_rows, t_cols] = df_day[x_col].values[valid]
-        grid_obs_n[t_rows, t_cols] = df_day[y_col].values[valid]
-        if lat_col in df_day.columns: grid_obs_lat[t_rows, t_cols] = df_day[lat_col].values[valid]
-        if lon_col in df_day.columns: grid_obs_lon[t_rows, t_cols] = df_day[lon_col].values[valid]
-        
-        
-        # Fill feature Columns
-        for col in env_cols:
-            if col in df_day.columns:
-                env_grids[col][t_rows, t_cols] = df_day[col].values[valid]
-
-    # Write to HDF5
-    with h5py.File(file_path, "a") as f:
-        # Create group for the day (e.g., /days/day_005)
-        day_grp_name = f"days/day_{int(fireday):03d}"
-        if day_grp_name in f: del f[day_grp_name] # Overwrite if exists
-        
-        day_grp = f.create_group(day_grp_name)
-        
-        # Add Metadata as Attributes
-        day_grp.attrs["fireday"] = fireday
-        
-        if not df_day.empty:
-
-            first_row = df_day.iloc[0] # Grab one representative point for this fire day
+        # Group by Unique Tiles
+        for (t_col, t_row), tile_df in fire_df.groupby(['tile_col', 'tile_row']):
+            tile_id = f"tile_{t_col}_{t_row}"
+            tile_grp = f.create_group(tile_id)
             
-            # Calculate on the 
-            timezone_finder = TimezoneFinder()
-            month, start_utc, end_utc, noon_utc = local_to_utc(first_row, timezone_finder, lon_col, lat_col)
+            # Tile Metadata
+            tile_grp.attrs["tile_col"] = t_col
+            tile_grp.attrs["tile_row"] = t_row
+            tile_x_min = t_col * tile_span_m
+            tile_y_max = (t_row + 1) * tile_span_m
             
-            # Save
-            day_grp.attrs["month"] = month
+            # --- TILE COORDS (Theoretical Geometry) ---
+            coords_grp = tile_grp.create_group("coords")
+            res_rows, res_cols = np.indices((grid_size, grid_size))
             
-            # Use isoformat() to turn datetimes into safe strings for H5
-            day_grp.attrs["start_utc"] = start_utc.isoformat() if hasattr(start_utc, 'isoformat') else str(start_utc)
-            day_grp.attrs["end_utc"]   = end_utc.isoformat()   if hasattr(end_utc, 'isoformat')   else str(end_utc)
-            day_grp.attrs["noon_utc"]  = noon_utc.isoformat()  if hasattr(noon_utc, 'isoformat')  else str(noon_utc)
+            # X goes left to right, Y goes top to bottom
+            theoretical_x = tile_x_min + (res_cols * pixel_size)
+            theoretical_y = tile_y_max - (res_rows * pixel_size)
+            theoretical_lon, theoretical_lat = transformer.transform(theoretical_x, theoretical_y)
+            
+            coords_grp.create_dataset("theoretical_easting", data=theoretical_x, compression="gzip")
+            coords_grp.create_dataset("theoretical_northing", data=theoretical_y, compression="gzip")
+            coords_grp.create_dataset("theoretical_lon", data=theoretical_lon, compression="gzip")
+            coords_grp.create_dataset("theoretical_lat", data=theoretical_lat, compression="gzip")
 
+            # --- TILE DAYS ---
+            days_grp = tile_grp.create_group("days")
             
-            for k in meta_keys:
-                if k in df_day.columns:
-                    val = df_day[k].iloc[0]
-                    # Handle None or NaN for H5 attributes
+            for fireday, day_df in tile_df.groupby('fireday'):
+                day_grp = days_grp.create_group(f"day_{int(fireday):03d}")
+                day_grp.attrs["fireday"] = fireday
+                
+                # Metadata & UTC Time
+                first_row = day_df.iloc[0]
+                month, start_utc, end_utc, noon_utc = local_to_utc(first_row, tf, lon_col, lat_col)
+                day_grp.attrs["month"] = month if month else "N/A"
+                day_grp.attrs["start_utc"] = start_utc if start_utc else "N/A"
+                day_grp.attrs["end_utc"] = end_utc if end_utc else "N/A"
+                day_grp.attrs["noon_utc"] = noon_utc if noon_utc else "N/A"
+                
+                for k in meta_keys:
+                    val = first_row.get(k)
                     day_grp.attrs[k] = val if pd.notnull(val) else "N/A"
 
-        # Save Grids
-        obs_grp = day_grp.create_group("observed_coords")
-        obs_grp.create_dataset("easting", data=grid_obs_e, compression="gzip")
-        obs_grp.create_dataset("northing", data=grid_obs_n, compression="gzip")
-        obs_grp.create_dataset("lat", data=grid_obs_lat, compression="gzip")
-        obs_grp.create_dataset("lon", data=grid_obs_lon, compression="gzip")
-        
-        env_grp = day_grp.create_group("features")
-        for col, grid in env_grids.items():
-            env_grp.create_dataset(col, data=grid, compression="gzip")
+                # Extract local pixel indices for this day
+                px_x = day_df['pixel_x'].values
+                px_y = day_df['pixel_y'].values
 
-    # print(f"Added day {fireday} to {file_path}")
+                # --- FEATURES ---
+                feat_grp = day_grp.create_group("features")
+                binary_cols = ['firearea', 'cumuarea'] 
+                
+                for col in env_cols:
+                    if col in day_df.columns:
+                        if col in binary_cols:
+                            # Initialize an empty boolean array (Defaults to False)
+                            grid = np.zeros((grid_size, grid_size), dtype=bool)
+                            
+                            # Binarize: Any value > 0 becomes True, everything else is False
+                            grid[px_y, px_x] = (day_df[col].values > 0)
+                            
+                            # Save as boolean type
+                            feat_grp.create_dataset(col, data=grid, compression="gzip")
+                        else:
+                            # Fallback for standard float32 features
+                            grid = np.full((grid_size, grid_size), fill_value, dtype=np.float32)
+                            grid[px_y, px_x] = day_df[col].values
+                            feat_grp.create_dataset(col, data=grid, compression="gzip")
+                
+                # --- OBSERVED COORDS ---
+                obs_grp = day_grp.create_group("observed_coords")
+                obs_map = {
+                    "easting": x_col, "northing": y_col, 
+                    "lat": lat_col, "lon": lon_col
+                }
+                for out_name, in_name in obs_map.items():
+                    if in_name in day_df.columns:
+                        grid = np.full((grid_size, grid_size), fill_value, dtype=np.float32)
+                        grid[px_y, px_x] = day_df[in_name].values
+                        obs_grp.create_dataset(out_name, data=grid, compression="gzip")
+
+    print(f"Successfully generated HDF5 for {fire_id}: {file_path}")
+    return file_path

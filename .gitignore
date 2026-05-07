@@ -14,6 +14,10 @@ env/
 
 # Checkpoints & outputs
 checkpoints/
+logistic_regression_outputs/
+logistic_regression_cache/
+logreg_*.out
+logreg_*.err
 
 # uv / pip
 .uv/

@@ -13,6 +13,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 from torchmetrics.segmentation import MeanIoU, DiceScore
 from torchmetrics.classification import (
@@ -25,6 +26,7 @@ from torchmetrics.classification import (
 )
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import uuid
 
 from src.config import TrainingConfig
 
@@ -148,18 +150,28 @@ class Trainer:
 
         pbar = tqdm(enumerate(loader), total=len(loader), desc=f"Train Epoch {epoch}")
 
-        for batch_idx, (images, masks) in pbar:
+        for batch_idx, batch_data in pbar:
+
+            if len(batch_data) == 3:
+                images, masks, delta_t = batch_data
+                delta_t = delta_t.to(self.device)
+            else:
+                images, masks = batch_data
+           
             images: Tensor = images.to(self.device)
             masks: Tensor = masks.long().to(self.device)
 
             self.optimizer.zero_grad()
-            predictions = self.model(images)
 
+            if len(batch_data) == 3:
+                predictions = self.model(images, delta_t)
+            else:
+                predictions = self.model(images)
 
             loss: Tensor = self.loss_fn(predictions, masks)
                 
             loss.backward()
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             self.optimizer.step()
 
             total_loss += loss.item()
@@ -187,12 +199,20 @@ class Trainer:
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(pbar):
+                
                 images, masks = batch[0], batch[1]
                 
                 images: Tensor = images.to(self.device)
                 masks: Tensor = masks.long().to(self.device)
+
+                if len(batch) == 3:
+                    delta_t = batch[2]
+                    delta_t = delta_t.to(self.device)
                 
-                predictions = self.model(images)
+                if len(batch) == 3:
+                    predictions = self.model(images, delta_t)
+                else:
+                    predictions = self.model(images)
 
                 loss: Tensor = self.loss_fn(predictions, masks)
                 total_loss += loss.item()
@@ -200,27 +220,40 @@ class Trainer:
                 # Update validation metrics
                 self._update_metrics(self.val_metrics, predictions, masks)
 
-                ### TEMP #############
-                # FILTER JUST FOR THE METRICS
-                if images.dim() == 5:
-                    # Spatio-temporal: [Batch, Time, Channels, Height, Width]
-                    old_fire_mask = images[:, -1, -2, :, :] > 0.5 
-                elif images.dim() == 4:
-                    # Spatial: [Batch, Channels, Height, Width]
-                    old_fire_mask = images[:, -2, :, :] > 0.5
-                else:
-                    raise ValueError(f"Expected 4D or 5D tensor, but got {images.dim()}D tensor.")
-                # Clone the predictions so we don't mess up anything else
-                metric_preds = predictions.clone()
-                if metric_preds.shape[1] == 1:
-                    metric_preds = metric_preds.masked_fill(old_fire_mask.unsqueeze(1), -10000.0)
-                else:
-                    metric_preds[:, 1:2, :, :] = metric_preds[:, 1:2, :, :].masked_fill(old_fire_mask.unsqueeze(1), 10000.0)
-                    metric_preds[:, 0:1, :, :] = metric_preds[:, 0:1, :, :].masked_fill(old_fire_mask.unsqueeze(1), -10000.0)
-                    metric_preds[:, 2:3, :, :] = metric_preds[:, 2:3, :, :].masked_fill(old_fire_mask.unsqueeze(1), -10000.0)
-                # Update FILTERED validation metrics (After Masking)
-                self._update_metrics(self.val_metrics_filtered, metric_preds, masks)
-                #########################
+                # ==========================================================
+                # EXPERIMENTAL COARSE + CLEANED METRICS BLOCK START
+                # ==========================================================
+                downscale = 2  # Set to 2 for 180m, or 4 for 360m
+
+                # ----------------------------------------------------------
+                # 1. CLEAN THE NOISY GROUND TRUTH (Binary Closing)
+                # ----------------------------------------------------------
+                raw_masks = masks.float().unsqueeze(1)
+                
+                # Dilation: Fills in the accidental gaps in your manual grid
+                dilated_masks = F.max_pool2d(raw_masks, kernel_size=3, stride=1, padding=1)
+                # Erosion (Negative-Max Trick): Shrinks the inflated perimeter back to normal
+                closed_masks = -F.max_pool2d(-dilated_masks, kernel_size=3, stride=1, padding=1)
+                
+                # Downsample the CLEANED masks
+                coarse_masks = F.max_pool2d(closed_masks, kernel_size=downscale, stride=downscale).squeeze(1).long()
+                
+                # ----------------------------------------------------------
+                # 2. CLEAN THE PREDICTIONS (Binary Closing)
+                # ----------------------------------------------------------
+                # Dilation: Fills in the model's "salt-and-pepper" holes
+                dilated_preds = F.max_pool2d(predictions, kernel_size=3, stride=1, padding=1)
+                # Erosion: Shrinks the inflated perimeter back to normal
+                closed_preds = -F.max_pool2d(-dilated_preds, kernel_size=3, stride=1, padding=1)
+
+                # Downsample the CLEANED predictions
+                coarse_preds = F.max_pool2d(closed_preds, kernel_size=downscale, stride=downscale)
+
+                # ----------------------------------------------------------
+                # 3. CALCULATE METRICS
+                # ----------------------------------------------------------
+                self._update_metrics(self.val_metrics_filtered, coarse_preds, coarse_masks)
+                # ==========================================================
 
                 # --- UPGRADED IMAGE LOGGING LOGIC ---
                 if not logged_image_this_epoch and self.logger is not None and epoch is not None:
@@ -266,7 +299,9 @@ class Trainer:
                         axes[1].set_title(f"Prediction (Epoch {epoch})")
                         axes[1].axis('off')
                         
-                        temp_img_path = f"temp_val_epoch_{epoch}.png"
+                        # temp_img_path = f"temp_val_epoch_{epoch}.png"
+                        random_id = uuid.uuid4().hex[:6]
+                        temp_img_path = f"temp_val_epoch_{epoch}_{random_id}.png"
                         plt.savefig(temp_img_path, bbox_inches='tight')
                         plt.close(fig)
                         

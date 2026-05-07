@@ -11,11 +11,13 @@ SUBSET_FEATURE_LIST = ['ID', 'lon', 'lat', 'easting', 'northing', 'fireday', 'ye
                         'dem', 'slope', 'aspect', 'Biomass', 'Closure', 'prcB', 'prcC']
 
 # To be replaced with the absolute paths
-PROJECT_FOLDER = 'Wildfires_Spread'
-DATA_FOLDER = 'Data'
-OUTPUT_FOLDER = 'Output'
+PROJECT_FOLDER = 'project_folder'
+DATA_FOLDER = 'data_folder'
+OUTPUT_FOLDER = 'output_folder'
 
 H5_OUTPUT_FOLDER = f'{OUTPUT_FOLDER}/Fires_H5'
+SAMPLE_FOLDER = f'{OUTPUT_FOLDER}/Samples'
+TIMESERIES_SAMPLE_FOLDER = f'{OUTPUT_FOLDER}/Timeseries_Samples'
 METADATA_FOLDER = f'{PROJECT_FOLDER}/fires_metadata'
 SATELLITE_STATUS_FOLDER = f'{PROJECT_FOLDER}/Satellite_Status'
 
@@ -38,6 +40,8 @@ ASPECT_FOLDER = f'{DATA_FOLDER}/DEM_API/Aspect'
 DIRS_TO_CREATE = [
     OUTPUT_FOLDER,
     H5_OUTPUT_FOLDER,
+    SAMPLE_FOLDER,
+    TIMESERIES_SAMPLE_FOLDER,
     METADATA_FOLDER,
     SATELLITE_STATUS_FOLDER,
     DEM_FOLDER,
