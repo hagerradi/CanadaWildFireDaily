@@ -1,5 +1,5 @@
 [project]
-name = "mila-wildfires"
+name = "CanadaWildFireDaily"
 version = "0.1.0"
 description = "AI for modelling wildfire daily propagation"
 readme = "README.md"
