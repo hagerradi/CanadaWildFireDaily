@@ -58,7 +58,7 @@ class TrainingConfig:
 @dataclass
 class CometConfig:
     enabled: bool = False
-    project_name: str = "mila-wildfires"
+    project_name: str = ""
     workspace: str = ""
     experiment_name: str = "default-run"
     experiment_tags: list[str] = field(default_factory=list)
