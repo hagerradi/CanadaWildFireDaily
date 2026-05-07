@@ -1,0 +1,1 @@
+"""Classical baselines for CanadaWildFireDaily."""
