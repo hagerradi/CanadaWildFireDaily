@@ -18,15 +18,15 @@ class DiceLoss(nn.Module):
         if self.apply_sigmoid:
             inputs = torch.sigmoid(inputs)
         
-        # Flatten the tensors so we compute the loss over the whole batch/image
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
+        # Compute Dice per image in the batch, then average
+        # Flatten each image independently: (N, *) -> keep batch dim
+        batch_size = inputs.size(0)
+        inputs_flat = inputs.view(batch_size, -1)
+        targets_flat = targets.view(batch_size, -1)
         
-        # Calculate intersection
-        intersection = (inputs * targets).sum()
+        # Per-image intersection and sums
+        intersection = (inputs_flat * targets_flat).sum(dim=1)
+        dice = (2. * intersection + self.smooth) / (inputs_flat.sum(dim=1) + targets_flat.sum(dim=1) + self.smooth)
         
-        # Calculate Dice Coefficient: (2 * intersection) / (sum of inputs + sum of targets)
-        dice = (2. * intersection + self.smooth) / (inputs.sum() + targets.sum() + self.smooth)
-        
-        # We want to minimize the loss, so we return 1 - dice
-        return 1 - dice
+        # We want to minimize the loss, so we return 1 - dice (averaged over batch)
+        return (1 - dice).mean()

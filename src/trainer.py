@@ -158,12 +158,12 @@ class Trainer:
 
             if len(batch_data) == 3:
                 images, masks, delta_t = batch_data
-                delta_t = delta_t.to(self.device)
+                delta_t = delta_t.to(self.device, non_blocking=True)
             else:
                 images, masks = batch_data
            
-            images: Tensor = images.to(self.device)
-            masks: Tensor = masks.long().to(self.device)
+            images: Tensor = images.to(self.device, non_blocking=True)
+            masks: Tensor = masks.long().to(self.device, non_blocking=True)
 
             self.optimizer.zero_grad()
 
@@ -202,17 +202,17 @@ class Trainer:
         pbar = tqdm(loader, total=len(loader), desc="Validating", leave=False)
         logged_image_this_epoch = False
 
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch_idx, batch in enumerate(pbar):
                 
                 images, masks = batch[0], batch[1]
                 
-                images: Tensor = images.to(self.device)
-                masks: Tensor = masks.long().to(self.device)
+                images: Tensor = images.to(self.device, non_blocking=True)
+                masks: Tensor = masks.long().to(self.device, non_blocking=True)
 
                 if len(batch) == 3:
                     delta_t = batch[2]
-                    delta_t = delta_t.to(self.device)
+                    delta_t = delta_t.to(self.device, non_blocking=True)
                 
                 if len(batch) == 3:
                     predictions = self.model(images, delta_t)
@@ -342,7 +342,7 @@ class Trainer:
         )
 
     def load_checkpoint(self, path: str | Path) -> int:
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         return checkpoint["epoch"]

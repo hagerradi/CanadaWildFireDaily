@@ -87,6 +87,7 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
         num_workers=tc.num_workers,
         persistent_workers=tc.num_workers > 0,
         pin_memory=True,
+        prefetch_factor=4 if tc.num_workers > 0 else None,
     )
     
     val_loader = DataLoader(
@@ -96,6 +97,7 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
         num_workers=tc.num_workers,
         persistent_workers=tc.num_workers > 0,
         pin_memory=True,
+        prefetch_factor=4 if tc.num_workers > 0 else None,
     )
     
     test_loader = DataLoader(
@@ -105,6 +107,7 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
         num_workers=tc.num_workers,
         persistent_workers=tc.num_workers > 0,
         pin_memory=True,
+        prefetch_factor=4 if tc.num_workers > 0 else None,
     )
 
     return train_loader, val_loader, test_loader
