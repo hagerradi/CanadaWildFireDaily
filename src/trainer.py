@@ -66,6 +66,10 @@ class Trainer:
         self.device = self._resolve_device(config.device)
         self.model.to(self.device)
 
+        # Enable automatic mixed precision only on CUDA
+        self._use_amp = self.device.type == "cuda"
+        self._scaler = torch.amp.GradScaler("cuda", enabled=self._use_amp)
+
         self.binary_classification_threshold = 0.5
 
         # Initialize separate metrics for train and validation phases
@@ -163,16 +167,17 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            if len(batch_data) == 3:
-                predictions = self.model(images, delta_t)
-            else:
-                predictions = self.model(images)
+            with torch.amp.autocast(self.device.type, enabled=self._use_amp):
+                if len(batch_data) == 3:
+                    predictions = self.model(images, delta_t)
+                else:
+                    predictions = self.model(images)
 
-            loss: Tensor = self.loss_fn(predictions, masks)
-                
-            loss.backward()
-            
-            self.optimizer.step()
+                loss: Tensor = self.loss_fn(predictions, masks)
+
+            self._scaler.scale(loss).backward()
+            self._scaler.step(self.optimizer)
+            self._scaler.update()
 
             total_loss += loss.item()
 
@@ -221,38 +226,40 @@ class Trainer:
                 self._update_metrics(self.val_metrics, predictions, masks)
 
                 # ==========================================================
-                # EXPERIMENTAL COARSE + CLEANED METRICS BLOCK START
+                # EXPERIMENTAL COARSE + CLEANED METRICS BLOCK
+                # Only runs when use_filtered_metrics=True in config
                 # ==========================================================
-                downscale = 2  # Set to 2 for 180m, or 4 for 360m
+                if self.config.use_filtered_metrics:
+                    downscale = 2  # Set to 2 for 180m, or 4 for 360m
 
-                # ----------------------------------------------------------
-                # 1. CLEAN THE NOISY GROUND TRUTH (Binary Closing)
-                # ----------------------------------------------------------
-                raw_masks = masks.float().unsqueeze(1)
-                
-                # Dilation: Fills in the accidental gaps in your manual grid
-                dilated_masks = F.max_pool2d(raw_masks, kernel_size=3, stride=1, padding=1)
-                # Erosion (Negative-Max Trick): Shrinks the inflated perimeter back to normal
-                closed_masks = -F.max_pool2d(-dilated_masks, kernel_size=3, stride=1, padding=1)
-                
-                # Downsample the CLEANED masks
-                coarse_masks = F.max_pool2d(closed_masks, kernel_size=downscale, stride=downscale).squeeze(1).long()
-                
-                # ----------------------------------------------------------
-                # 2. CLEAN THE PREDICTIONS (Binary Closing)
-                # ----------------------------------------------------------
-                # Dilation: Fills in the model's "salt-and-pepper" holes
-                dilated_preds = F.max_pool2d(predictions, kernel_size=3, stride=1, padding=1)
-                # Erosion: Shrinks the inflated perimeter back to normal
-                closed_preds = -F.max_pool2d(-dilated_preds, kernel_size=3, stride=1, padding=1)
+                    # ----------------------------------------------------------
+                    # 1. CLEAN THE NOISY GROUND TRUTH (Binary Closing)
+                    # ----------------------------------------------------------
+                    raw_masks = masks.float().unsqueeze(1)
+                    
+                    # Dilation: Fills in the accidental gaps in your manual grid
+                    dilated_masks = F.max_pool2d(raw_masks, kernel_size=3, stride=1, padding=1)
+                    # Erosion (Negative-Max Trick): Shrinks the inflated perimeter back to normal
+                    closed_masks = -F.max_pool2d(-dilated_masks, kernel_size=3, stride=1, padding=1)
+                    
+                    # Downsample the CLEANED masks
+                    coarse_masks = F.max_pool2d(closed_masks, kernel_size=downscale, stride=downscale).squeeze(1).long()
+                    
+                    # ----------------------------------------------------------
+                    # 2. CLEAN THE PREDICTIONS (Binary Closing)
+                    # ----------------------------------------------------------
+                    # Dilation: Fills in the model's "salt-and-pepper" holes
+                    dilated_preds = F.max_pool2d(predictions, kernel_size=3, stride=1, padding=1)
+                    # Erosion: Shrinks the inflated perimeter back to normal
+                    closed_preds = -F.max_pool2d(-dilated_preds, kernel_size=3, stride=1, padding=1)
 
-                # Downsample the CLEANED predictions
-                coarse_preds = F.max_pool2d(closed_preds, kernel_size=downscale, stride=downscale)
+                    # Downsample the CLEANED predictions
+                    coarse_preds = F.max_pool2d(closed_preds, kernel_size=downscale, stride=downscale)
 
-                # ----------------------------------------------------------
-                # 3. CALCULATE METRICS
-                # ----------------------------------------------------------
-                self._update_metrics(self.val_metrics_filtered, coarse_preds, coarse_masks)
+                    # ----------------------------------------------------------
+                    # 3. CALCULATE METRICS
+                    # ----------------------------------------------------------
+                    self._update_metrics(self.val_metrics_filtered, coarse_preds, coarse_masks)
                 # ==========================================================
 
                 # --- UPGRADED IMAGE LOGGING LOGIC ---
@@ -314,10 +321,13 @@ class Trainer:
 
         # Compute final val metrics and reset states for the next epoch
         val_raw_results = self._compute_and_reset_metrics(self.val_metrics, prefix="Val_")
-        val_filtered_results = self._compute_and_reset_metrics(self.val_metrics_filtered, prefix="Val_Masked_")
         
-        # Merge both dictionaries into one so Comet logs everything
-        val_metric_results = {**val_raw_results, **val_filtered_results}
+        if self.config.use_filtered_metrics:
+            val_filtered_results = self._compute_and_reset_metrics(self.val_metrics_filtered, prefix="Val_Masked_")
+            # Merge both dictionaries into one so Comet logs everything
+            val_metric_results = {**val_raw_results, **val_filtered_results}
+        else:
+            val_metric_results = val_raw_results
         
         return total_loss / len(loader), val_metric_results
 

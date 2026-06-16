@@ -3,7 +3,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from configs import settings
 from src.config import Config
-from skimage import morphology
 import numpy as np
 
 class DailyFireDataset(Dataset):
@@ -30,12 +29,16 @@ class DailyFireDataset(Dataset):
             y_np = data['y']
             delta_t_np = data['delta_t']
         
-        # APPYING MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
-        y_bool = y_np > 0 
-        # Fill the 1-pixel projection gaps
-        y_filled_np = morphology.remove_small_holes(y_bool, area_threshold=1)
-        # Convert back to its original integer type (uint8)
-        y_filled_np = y_filled_np.astype(y_np.dtype)
+        # APPLY MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
+        # Equivalent to skimage.morphology.remove_small_holes(area_threshold=1):
+        # fills isolated False pixels whose all 4-connected neighbours are True.
+        y_bool = y_np.astype(bool)
+        padded = np.pad(y_bool, 1, constant_values=False)
+        has_false_4neighbor = (
+            ~padded[:-2, 1:-1] | ~padded[2:, 1:-1] |
+            ~padded[1:-1, :-2] | ~padded[1:-1, 2:]
+        )
+        y_filled_np = (y_bool | ~has_false_4neighbor).astype(y_np.dtype)
 
         # Convert everything to PyTorch Tensors
         x_tensor = torch.from_numpy(x_np).float() 
@@ -82,7 +85,8 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
         batch_size=tc.batch_size, 
         shuffle=True, 
         num_workers=tc.num_workers,
-        persistent_workers=False
+        persistent_workers=tc.num_workers > 0,
+        pin_memory=True,
     )
     
     val_loader = DataLoader(
@@ -90,7 +94,8 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
         batch_size=tc.batch_size, 
         shuffle=False, 
         num_workers=tc.num_workers,
-        persistent_workers=False
+        persistent_workers=tc.num_workers > 0,
+        pin_memory=True,
     )
     
     test_loader = DataLoader(
@@ -98,7 +103,8 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
         batch_size=tc.batch_size, 
         shuffle=False,
         num_workers=tc.num_workers,
-        persistent_workers=False   
+        persistent_workers=tc.num_workers > 0,
+        pin_memory=True,
     )
 
     return train_loader, val_loader, test_loader
