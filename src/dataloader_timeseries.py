@@ -6,21 +6,29 @@ from src.config import Config
 import numpy as np
 
 class TimeSeriesFireDataset(Dataset):
-    def __init__(self, data_dir: str, return_positions: bool = False):
+    def __init__(self, data_dir: str, return_positions: bool = False, cache_in_memory: bool = False):
         """
             data_dir: Path to the specific split folder (e.g., settings.TIMESERIES_SAMPLE_FOLDER + "/train")
+            cache_in_memory: When True, all samples are loaded and preprocessed once at init
+                time and stored in RAM.  Subsequent __getitem__ calls are pure tensor indexing
+                with no file I/O or decompression overhead.
         """
         self.data_dir = data_dir
         self.return_positions = return_positions
         
         # Sort files to ensure consistent, reproducible ordering across runs
-        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.pt')])
-        
-    def __len__(self):
-        return len(self.files)
-        
-    def __getitem__(self, idx):
-        
+        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npz')])
+
+        self._cache: list | None = None
+        if cache_in_memory:
+            self._cache = [self._load(i) for i in range(len(self.files))]
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load(self, idx: int):
+        """Load, hole-fill, and convert one sample to tensors."""
         file_path = os.path.join(self.data_dir, self.files[idx])
 
         with np.load(file_path) as data:
@@ -38,15 +46,25 @@ class TimeSeriesFireDataset(Dataset):
         )
         y_filled_np = (y_bool | ~has_false_4neighbor).astype(y_np.dtype)
 
-        # Convert everything to PyTorch Tensors
-        x_tensor = torch.from_numpy(x_np).float() 
+        x_tensor = torch.from_numpy(x_np).float()
         y_tensor = torch.from_numpy(y_filled_np).float()
         positions_tensor = torch.from_numpy(positions_np).float()
 
         if self.return_positions:
             return x_tensor, y_tensor, positions_tensor
-        else:
-            return x_tensor, y_tensor
+        return x_tensor, y_tensor
+
+    # ------------------------------------------------------------------
+    # Dataset interface
+    # ------------------------------------------------------------------
+
+    def __len__(self):
+        return len(self.files)
+        
+    def __getitem__(self, idx):
+        if self._cache is not None:
+            return self._cache[idx]
+        return self._load(idx)
 
 
 def get_timeseries_dataloaders(
@@ -69,9 +87,10 @@ def get_timeseries_dataloaders(
     test_dir = os.path.join(base_data_path, "test")
 
     # Instantiate the datasets
-    train_dataset = TimeSeriesFireDataset(train_dir, return_positions=return_positions)
-    val_dataset = TimeSeriesFireDataset(val_dir, return_positions=return_positions)
-    test_dataset = TimeSeriesFireDataset(test_dir, return_positions=return_positions)
+    cache = getattr(tc, 'cache_in_memory', False)
+    train_dataset = TimeSeriesFireDataset(train_dir, return_positions=return_positions, cache_in_memory=cache)
+    val_dataset = TimeSeriesFireDataset(val_dir, return_positions=return_positions, cache_in_memory=cache)
+    test_dataset = TimeSeriesFireDataset(test_dir, return_positions=return_positions, cache_in_memory=cache)
 
     print(f'Number of offline TS training samples   :: {len(train_dataset)}')
     print(f'Number of offline TS validation samples :: {len(val_dataset)}')

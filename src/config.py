@@ -56,6 +56,7 @@ class TrainingConfig:
     use_filtered_metrics: bool = False
     use_compile: bool = False
     cudnn_benchmark: bool = False
+    cache_in_memory: bool = False
 
 
 @dataclass

@@ -6,29 +6,38 @@ from src.config import Config
 import numpy as np
 
 class DailyFireDataset(Dataset):
-    def __init__(self, data_dir: str, return_sat_age: bool = False):
+    def __init__(self, data_dir: str, return_sat_age: bool = False, cache_in_memory: bool = False):
         """
             data_dir: Path to the specific split folder (e.g., settings.SAMPLE_FOLDER + "/train")
+            cache_in_memory: When True, all samples are loaded and preprocessed once at init
+                time and stored in RAM.  Subsequent __getitem__ calls are pure tensor indexing
+                with no file I/O or decompression overhead.  Requires enough free RAM to hold
+                the entire split (~5 MB per 256×256×20-channel float32 sample).
         """
         
         self.data_dir = data_dir
         self.return_sat_age = return_sat_age
         
         # Sort files to ensure consistent, reproducible ordering across runs
-        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.pt')])
-        
-    def __len__(self):
-        return len(self.files)
-        
-    def __getitem__(self, idx):
-        
+        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npz')])
+
+        self._cache: list | None = None
+        if cache_in_memory:
+            self._cache = [self._load(i) for i in range(len(self.files))]
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load(self, idx: int):
+        """Load, hole-fill, and convert one sample to tensors."""
         file_path = os.path.join(self.data_dir, self.files[idx])
 
         with np.load(file_path) as data:
             x_np = data['x']
             y_np = data['y']
             delta_t_np = data['delta_t']
-        
+
         # APPLY MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
         # Equivalent to skimage.morphology.remove_small_holes(area_threshold=1):
         # fills isolated False pixels whose all 4-connected neighbours are True.
@@ -40,15 +49,25 @@ class DailyFireDataset(Dataset):
         )
         y_filled_np = (y_bool | ~has_false_4neighbor).astype(y_np.dtype)
 
-        # Convert everything to PyTorch Tensors
-        x_tensor = torch.from_numpy(x_np).float() 
+        x_tensor = torch.from_numpy(x_np).float()
         y_tensor = torch.from_numpy(y_filled_np).float()
         delta_t_tensor = torch.from_numpy(delta_t_np).float()
 
         if self.return_sat_age:
             return x_tensor, y_tensor, delta_t_tensor
-        else:
-            return x_tensor, y_tensor
+        return x_tensor, y_tensor
+
+    # ------------------------------------------------------------------
+    # Dataset interface
+    # ------------------------------------------------------------------
+
+    def __len__(self):
+        return len(self.files)
+        
+    def __getitem__(self, idx):
+        if self._cache is not None:
+            return self._cache[idx]
+        return self._load(idx)
 
 
 def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataLoader, DataLoader]:
@@ -70,10 +89,12 @@ def get_dataloaders(config: Config, is_sat_age: bool) -> tuple[DataLoader, DataL
     val_dir = os.path.join(base_data_path, "val")
     test_dir = os.path.join(base_data_path, "test")
 
+    cache = getattr(tc, 'cache_in_memory', False)
+
     # Instantiate the datasets, passing the sat_age flag
-    train_dataset = DailyFireDataset(train_dir, return_sat_age=is_sat_age)
-    val_dataset = DailyFireDataset(val_dir, return_sat_age=is_sat_age)
-    test_dataset = DailyFireDataset(test_dir, return_sat_age=is_sat_age)
+    train_dataset = DailyFireDataset(train_dir, return_sat_age=is_sat_age, cache_in_memory=cache)
+    val_dataset = DailyFireDataset(val_dir, return_sat_age=is_sat_age, cache_in_memory=cache)
+    test_dataset = DailyFireDataset(test_dir, return_sat_age=is_sat_age, cache_in_memory=cache)
 
     print(f'Number of offline training samples   :: {len(train_dataset)}')
     print(f'Number of offline validation samples :: {len(val_dataset)}')
