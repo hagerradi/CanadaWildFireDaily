@@ -70,7 +70,7 @@ def train(config: Config) -> None:
             - test_loader (DataLoader): The dataloader containing the test set split.
     """
     # Fix all random seeds (CPU, CUDA, CuDNN, Python)
-    seed_everything(config.seed)
+    seed_everything(config.seed, benchmark=config.training.cudnn_benchmark)
 
     # Model
     mc = config.model
@@ -147,6 +147,11 @@ def train(config: Config) -> None:
     
     else:
         raise ValueError(f"Unknown architecture specified in config: '{mc.architecture}'")
+
+    # Optionally compile the model for faster execution (PyTorch >= 2.0, CUDA recommended)
+    if config.training.use_compile:
+        print("Compiling model with torch.compile (first batch will be slower)...")
+        model = torch.compile(model)
 
     # Optimizer & loss
     optimizer = torch.optim.AdamW(

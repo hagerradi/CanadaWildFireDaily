@@ -53,6 +53,10 @@ class TrainingConfig:
     smooth_mask: bool = True
     smooth_kernel: int = 3
     use_cyclical_aspect: bool = True
+    use_filtered_metrics: bool = False
+    use_compile: bool = False
+    cudnn_benchmark: bool = False
+    cache_in_memory: bool = False
 
 
 @dataclass

@@ -51,7 +51,7 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
         is_3_class = trainer.config.use_cumuarea
         vmax_val = 2 if is_3_class else 1
         
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch in test_loader:
                 if images_logged >= max_images:
                     break # Stop if we hit max
@@ -61,14 +61,14 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                 # ==========================================
                 if len(batch) == 3:
                     inputs, masks, delta_t = batch
-                    inputs = inputs.to(trainer.device)
-                    masks = masks.to(trainer.device)
-                    delta_t = delta_t.to(trainer.device)
+                    inputs = inputs.to(trainer.device, non_blocking=True)
+                    masks = masks.to(trainer.device, non_blocking=True)
+                    delta_t = delta_t.to(trainer.device, non_blocking=True)
                     predictions = trainer.model(inputs, delta_t)
                 else:
                     inputs, masks = batch
-                    inputs = inputs.to(trainer.device)
-                    masks = masks.to(trainer.device)
+                    inputs = inputs.to(trainer.device, non_blocking=True)
+                    masks = masks.to(trainer.device, non_blocking=True)
                     predictions = trainer.model(inputs)
 
                 # ==========================================
