@@ -291,8 +291,8 @@ def run_s2_h5_pipeline(h5_path, bands):
     """
     
     pipeline_bands = list(bands)
-    if "SCL" not in pipeline_bands:
-        pipeline_bands.append("SCL")
+    # if "SCL" not in pipeline_bands:
+    #     pipeline_bands.append("SCL")
 
     print(f"\n{'='*60}\nRunning Tile-Based Sentinel-2 for: {h5_path.name}")
 
