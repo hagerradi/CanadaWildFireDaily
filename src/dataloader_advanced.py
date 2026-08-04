@@ -23,6 +23,61 @@ class DailyFireDataset(Dataset):
         self.return_loc_emb = return_loc_emb
         self.return_olmo_emb = return_olmo_emb
         self.return_alpha_emb = return_alpha_emb
+
+        # ## TEMP ##
+        # all_feature_names = [
+        #         # --- DYNAMIC FEATURES (14) ---
+        #         'tmax', 'rh', 'ws', 'prec', 'u10', 'v10', 'evi', 'ndvi', 
+        #         's2_b02', 's2_b03', 's2_b04', 's2_b08', 's2_b11', 's2_b12',
+                
+        #         # --- STATIC FEATURES (before SCANFI landcover) (8) ---
+        #         'dem', 'slope', 'aspect (sin)', 'aspect (cos)', 
+        #         'biomass', 'closure', 'prcb', 'prcc',
+                
+        #         # --- STATIC FEATURES (between landcovers) (9) ---
+        #         'height',
+        #         'prc_balsam_fir', 'prc_black_spruce', 'prc_douglas_fir', 'prc_jack_pine',
+        #         'prc_lodgepole_pine', 'prc_ponderosa_pine', 'prc_tamarack', 'prc_white_red_pine',
+                
+        #         # --- CCRS LANDCOVER (15) ---
+        #         'ccrs_1_needleleaf', 
+        #         'ccrs_2_taiga_needleleaf', 
+        #         'ccrs_5_broadleaf', 
+        #         'ccrs_6_mixed_forest', 
+        #         'ccrs_8_shrubland', 
+        #         'ccrs_10_grassland', 
+        #         'ccrs_11_polar_shrubland', 
+        #         'ccrs_12_polar_grassland', 
+        #         'ccrs_13_polar_barren', 
+        #         'ccrs_14_wetland', 
+        #         'ccrs_15_cropland', 
+        #         'ccrs_16_barren', 
+        #         'ccrs_17_urban', 
+        #         'ccrs_18_water', 
+        #         'ccrs_19_snow',
+        
+        #         # --- HUMAN INFLUENCE INDEX (1) ---
+        #         'hii',
+        
+        #         # --- ANNUAL DISTURBANCE (6) ---
+        #         'dist_1_wildfire', 
+        #         'dist_2_harvesting', 
+        #         'dist_3_other', 
+        #         'dist_4_water', 
+        #         'dist_5_defoliation_harvest', 
+        #         'dist_6_defoliation_all',
+                
+        #         # --- FIRE MASKS (2) ---
+        #         'accumulated_mask', 'scaled_accumulated_mask'
+        #     ]
+
+        # drop_feature_names = ['hii']
+        
+        # # Calculate indices to KEEP
+        # self.keep_indices = [
+        #     i for i, name in enumerate(all_feature_names) 
+        #     if name not in drop_feature_names
+        # ]
         
         # Sort files to ensure consistent, reproducible ordering across runs
         self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npz')])
@@ -44,7 +99,7 @@ class DailyFireDataset(Dataset):
             x_np = data['x']
             y_np = data['y'] 
 
-            # Conditionally load
+            # Conditionally load to prevent KeyErrors on older datasets
             if self.return_sat_age and 'delta_t' in data:
                 delta_t_np = data['delta_t']
                 has_delta = True
@@ -64,6 +119,10 @@ class DailyFireDataset(Dataset):
             if self.return_alpha_emb and 'alpha_emb' in data:
                 alpha_emb_np = data['alpha_emb']
                 has_alpha = True
+
+        # # Temporary Slicing
+        # if self.keep_indices is not None:
+        #     x_np = x_np[self.keep_indices, :, :]
         
         # APPYING MAX_SIZE=1 HOLE FILLING TO THE MASK (remove noise pixels from projection)
         y_bool = y_np > 0 
@@ -102,12 +161,12 @@ class DailyFireDataset(Dataset):
         return sample
 
 
-def get_dataloaders(config: Config, 
+def get_advanced_dataloaders(config: Config, 
                     is_sat_age: bool, 
                     is_coords: bool = False, 
                     is_loc_emb: bool = False, 
                     is_olmo_emb: bool = False,
-                    is_alpha_emb: bool = False) -> tuple[DataLoader, DataLoader, DataLoader]:
+                    is_alpha_emb: bool = False) -> tuple[DataLoader, DataLoader, DataLoader, DataLoader, DataLoader]:
     """Instantiates the offline datasets and wraps them in PyTorch DataLoaders.
 
     Args:
@@ -121,22 +180,41 @@ def get_dataloaders(config: Config,
     """
     tc = config.training
     
-    base_data_path = settings.SAMPLE_FOLDER
+    base_data_path = settings.SAMPLE_FOLDER_ADVANCED
     print(f'Samples path : {base_data_path}')
+
+    # if is_olmo_emb:
+    #     base_data_path = settings.SAMPLE_FOLDER_ADVANCED.replace("v1", "v2")
+    #     print(f'Samples path Instead : {base_data_path}')
 
     # Define the paths to the precomputed splits
     train_dir = os.path.join(base_data_path, "train")
     val_dir = os.path.join(base_data_path, "val")
-    test_dir = os.path.join(base_data_path, "test")
+    test_space_dir = os.path.join(base_data_path, "test_space")
+    test_time_dir = os.path.join(base_data_path, "test_time")
+    test_spacetime_dir = os.path.join(base_data_path, "test_spacetime")
+
+    # Refactor dataset arguments
+    dataset_kwargs = {
+        "return_sat_age": is_sat_age,
+        "return_coords": is_coords,
+        "return_loc_emb": is_loc_emb,
+        "return_olmo_emb": is_olmo_emb,
+        "return_alpha_emb": is_alpha_emb
+    }
 
     # Instantiate the datasets, passing the sat_age flag
-    train_dataset = DailyFireDataset(train_dir, return_sat_age=is_sat_age, return_coords=is_coords, return_loc_emb=is_loc_emb, return_olmo_emb=is_olmo_emb, return_alpha_emb=is_alpha_emb)
-    val_dataset = DailyFireDataset(val_dir, return_sat_age=is_sat_age, return_coords=is_coords, return_loc_emb=is_loc_emb, return_olmo_emb=is_olmo_emb, return_alpha_emb=is_alpha_emb)
-    test_dataset = DailyFireDataset(test_dir, return_sat_age=is_sat_age, return_coords=is_coords, return_loc_emb=is_loc_emb, return_olmo_emb=is_olmo_emb, return_alpha_emb=is_alpha_emb)
+    train_dataset = DailyFireDataset(train_dir, **dataset_kwargs)
+    val_dataset = DailyFireDataset(val_dir, **dataset_kwargs)
+    test_space_dataset = DailyFireDataset(test_space_dir, **dataset_kwargs)
+    test_time_dataset = DailyFireDataset(test_time_dir, **dataset_kwargs)
+    test_spacetime_dataset = DailyFireDataset(test_spacetime_dir, **dataset_kwargs)
 
     print(f'Number of offline training samples   :: {len(train_dataset)}')
     print(f'Number of offline validation samples :: {len(val_dataset)}')
-    print(f'Number of offline test samples       :: {len(test_dataset)}')
+    print(f'Number of offline test-space samples       :: {len(test_space_dataset)}')
+    print(f'Number of offline test-time samples       :: {len(test_time_dataset)}')
+    print(f'Number of offline test-spacetime samples       :: {len(test_spacetime_dataset)}')
 
     # ---------------------------------------------------------
     # VERIFICATION
@@ -144,7 +222,7 @@ def get_dataloaders(config: Config,
     print('\n--- Verification of Sample 0 ---')
     
     # Safely grab x
-    sample_data = test_dataset[0]
+    sample_data = test_spacetime_dataset[0]
     x = sample_data['input_grids']
     print(f'Input Tensor Shape : {x.shape}')
 
@@ -204,19 +282,35 @@ def get_dataloaders(config: Config,
         persistent_workers=False
     )
     
-    test_loader = DataLoader(
-        test_dataset, 
+    test_space_loader = DataLoader(
+        test_space_dataset, 
         batch_size=tc.batch_size, 
         shuffle=False,
         num_workers=tc.num_workers,
         persistent_workers=False   
     )
 
-    return train_loader, val_loader, test_loader
+    test_time_loader = DataLoader(
+        test_time_dataset, 
+        batch_size=tc.batch_size, 
+        shuffle=False,
+        num_workers=tc.num_workers,
+        persistent_workers=False   
+    )
+
+    test_spacetime_loader = DataLoader(
+        test_spacetime_dataset, 
+        batch_size=tc.batch_size, 
+        shuffle=False,
+        num_workers=tc.num_workers,
+        persistent_workers=False   
+    )
+    
+    return train_loader, val_loader, test_space_loader, test_time_loader, test_spacetime_loader
 
 if __name__ == "__main__":
     
-    data_dir = os.path.join(settings.SAMPLE_FOLDER, "train")
+    data_dir = os.path.join(settings.SAMPLE_FOLDER_ADVANCED, "train")
     
     print("--- Running Dataset Flag Verification ---")
     

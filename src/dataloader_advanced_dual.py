@@ -8,6 +8,9 @@ import numpy as np
 
 class DailyFireDataset(Dataset):
     def __init__(self, data_dir: str, 
+                 all_feature_names: list = None,
+                 rgb_feature_names: list = None,
+                 env_feature_names: list = None,
                  return_sat_age: bool = False, 
                  return_coords: bool = False,
                  return_loc_emb: bool = False,
@@ -23,6 +26,19 @@ class DailyFireDataset(Dataset):
         self.return_loc_emb = return_loc_emb
         self.return_olmo_emb = return_olmo_emb
         self.return_alpha_emb = return_alpha_emb
+
+        # AUTOMATIC INDEX EXTRACTION FROM FEATURE NAMES
+        if all_feature_names is not None:
+            # Map RGB names -> integer indices
+            if rgb_feature_names is not None:
+                self.rgb_indices = [all_feature_names.index(f) for f in rgb_feature_names]
+
+            # Map Env names -> integer indices
+            if env_feature_names is not None:
+                self.env_indices = [all_feature_names.index(f) for f in env_feature_names]
+            else:
+                # If env_feature_names isn't provided, use all remaining features
+                self.env_indices = [i for i in range(len(all_feature_names)) if i not in self.rgb_indices]
         
         # Sort files to ensure consistent, reproducible ordering across runs
         self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npz')])
@@ -44,7 +60,7 @@ class DailyFireDataset(Dataset):
             x_np = data['x']
             y_np = data['y'] 
 
-            # Conditionally load
+            # Conditionally load to prevent KeyErrors on older datasets
             if self.return_sat_age and 'delta_t' in data:
                 delta_t_np = data['delta_t']
                 has_delta = True
@@ -76,9 +92,14 @@ class DailyFireDataset(Dataset):
         x_tensor = torch.from_numpy(x_np).float() 
         y_tensor = torch.from_numpy(y_filled_np).float()
 
-        # Build sample
+        # Extract the two branches
+        rgb_tensor = x_tensor[self.rgb_indices, :, :]
+        env_tensor = x_tensor[self.env_indices, :, :]
+
+        # Build sample dictionary
         sample = {
-            "input_grids": x_tensor,
+            "input_rgb": rgb_tensor,
+            "input_env": env_tensor,
             "label": y_tensor
         }
         
@@ -102,12 +123,15 @@ class DailyFireDataset(Dataset):
         return sample
 
 
-def get_dataloaders(config: Config, 
+def get_advanced_dual_dataloaders(config: Config, 
+                    all_features,
+                    rgb_features,
+                    env_features,        
                     is_sat_age: bool, 
                     is_coords: bool = False, 
                     is_loc_emb: bool = False, 
                     is_olmo_emb: bool = False,
-                    is_alpha_emb: bool = False) -> tuple[DataLoader, DataLoader, DataLoader]:
+                    is_alpha_emb: bool = False) -> tuple[DataLoader, DataLoader, DataLoader, DataLoader, DataLoader]:
     """Instantiates the offline datasets and wraps them in PyTorch DataLoaders.
 
     Args:
@@ -121,22 +145,40 @@ def get_dataloaders(config: Config,
     """
     tc = config.training
     
-    base_data_path = settings.SAMPLE_FOLDER
+    base_data_path = settings.SAMPLE_FOLDER_ADVANCED
     print(f'Samples path : {base_data_path}')
 
     # Define the paths to the precomputed splits
     train_dir = os.path.join(base_data_path, "train")
     val_dir = os.path.join(base_data_path, "val")
-    test_dir = os.path.join(base_data_path, "test")
+    test_space_dir = os.path.join(base_data_path, "test_space")
+    test_time_dir = os.path.join(base_data_path, "test_time")
+    test_spacetime_dir = os.path.join(base_data_path, "test_spacetime")
+
+    # Refactor dataset arguments
+    dataset_kwargs = {
+        "all_feature_names": all_features,
+        "rgb_feature_names": rgb_features,
+        "env_feature_names": env_features,
+        "return_sat_age": is_sat_age,
+        "return_coords": is_coords,
+        "return_loc_emb": is_loc_emb,
+        "return_olmo_emb": is_olmo_emb,
+        "return_alpha_emb": is_alpha_emb
+    }
 
     # Instantiate the datasets, passing the sat_age flag
-    train_dataset = DailyFireDataset(train_dir, return_sat_age=is_sat_age, return_coords=is_coords, return_loc_emb=is_loc_emb, return_olmo_emb=is_olmo_emb, return_alpha_emb=is_alpha_emb)
-    val_dataset = DailyFireDataset(val_dir, return_sat_age=is_sat_age, return_coords=is_coords, return_loc_emb=is_loc_emb, return_olmo_emb=is_olmo_emb, return_alpha_emb=is_alpha_emb)
-    test_dataset = DailyFireDataset(test_dir, return_sat_age=is_sat_age, return_coords=is_coords, return_loc_emb=is_loc_emb, return_olmo_emb=is_olmo_emb, return_alpha_emb=is_alpha_emb)
+    train_dataset = DailyFireDataset(train_dir, **dataset_kwargs)
+    val_dataset = DailyFireDataset(val_dir, **dataset_kwargs)
+    test_space_dataset = DailyFireDataset(test_space_dir, **dataset_kwargs)
+    test_time_dataset = DailyFireDataset(test_time_dir, **dataset_kwargs)
+    test_spacetime_dataset = DailyFireDataset(test_spacetime_dir, **dataset_kwargs)
 
     print(f'Number of offline training samples   :: {len(train_dataset)}')
     print(f'Number of offline validation samples :: {len(val_dataset)}')
-    print(f'Number of offline test samples       :: {len(test_dataset)}')
+    print(f'Number of offline test-space samples       :: {len(test_space_dataset)}')
+    print(f'Number of offline test-time samples       :: {len(test_time_dataset)}')
+    print(f'Number of offline test-spacetime samples       :: {len(test_spacetime_dataset)}')
 
     # ---------------------------------------------------------
     # VERIFICATION
@@ -144,9 +186,12 @@ def get_dataloaders(config: Config,
     print('\n--- Verification of Sample 0 ---')
     
     # Safely grab x
-    sample_data = test_dataset[0]
-    x = sample_data['input_grids']
-    print(f'Input Tensor Shape : {x.shape}')
+    sample_data = test_spacetime_dataset[0]
+    x_rgb = sample_data['input_rgb']
+    x_env = sample_data['input_env']
+    
+    print(f'RGB Tensor Shape : {x_rgb.shape}')
+    print(f'Env Tensor Shape : {x_env.shape}')
 
     if is_sat_age:
         sat_age = sample_data['satellite_age']
@@ -177,13 +222,17 @@ def get_dataloaders(config: Config,
         else:
             print(f"[!] Warning: alpha_emb requested but missing from sample 0.")
 
-    print("Channel Ranges (Min -> Max):")
+    print("\nChannel Ranges (Min -> Max) for RGB:")
+    for i in range(x_rgb.shape[0]):
+        chan_min = x_rgb[i].min().item()
+        chan_max = x_rgb[i].max().item()
+        print(f"  RGB Channel [{i:02d}]: {chan_min:>8.4f}  ->  {chan_max:>8.4f}")
 
-    # Loop directly over the channels
-    for i in range(x.shape[0]):
-        chan_min = x[i].min().item()
-        chan_max = x[i].max().item()
-        print(f"  Channel [{i:02d}]: {chan_min:>8.4f}  ->  {chan_max:>8.4f}")
+    print("\nChannel Ranges (Min -> Max) for Env:")
+    for i in range(x_env.shape[0]):
+        chan_min = x_env[i].min().item()
+        chan_max = x_env[i].max().item()
+        print(f"  Env Channel [{i:02d}]: {chan_min:>8.4f}  ->  {chan_max:>8.4f}")
     
     print('--------------------------------\n')
 
@@ -204,19 +253,35 @@ def get_dataloaders(config: Config,
         persistent_workers=False
     )
     
-    test_loader = DataLoader(
-        test_dataset, 
+    test_space_loader = DataLoader(
+        test_space_dataset, 
         batch_size=tc.batch_size, 
         shuffle=False,
         num_workers=tc.num_workers,
         persistent_workers=False   
     )
 
-    return train_loader, val_loader, test_loader
+    test_time_loader = DataLoader(
+        test_time_dataset, 
+        batch_size=tc.batch_size, 
+        shuffle=False,
+        num_workers=tc.num_workers,
+        persistent_workers=False   
+    )
+
+    test_spacetime_loader = DataLoader(
+        test_spacetime_dataset, 
+        batch_size=tc.batch_size, 
+        shuffle=False,
+        num_workers=tc.num_workers,
+        persistent_workers=False   
+    )
+    
+    return train_loader, val_loader, test_space_loader, test_time_loader, test_spacetime_loader
 
 if __name__ == "__main__":
     
-    data_dir = os.path.join(settings.SAMPLE_FOLDER, "train")
+    data_dir = os.path.join(settings.SAMPLE_FOLDER_ADVANCED, "train")
     
     print("--- Running Dataset Flag Verification ---")
     
