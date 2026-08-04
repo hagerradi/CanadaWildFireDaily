@@ -4,13 +4,14 @@ import torch
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+
 import os
 import uuid
 
 from src.trainer import Trainer
 
 
-def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> float:
+def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader, generate_image: bool = True) -> float:
     """Load a checkpoint and evaluate on the test split.
 
     Args:
@@ -35,7 +36,7 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
     for metric_name, value in test_iou_metrics.items():
         print(f"{metric_name}: {value:.4f}")
 
-    if trainer.logger is not None:
+    if trainer.logger is not None and generate_image:
         
         print("\nGetting test images for Comet visualization...")
         trainer.model.eval()
@@ -52,37 +53,46 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
         vmax_val = 2 if is_3_class else 1
         
         with torch.no_grad():
+
             for batch in test_loader:
+
                 if images_logged >= max_images:
                     break # Stop if we hit max
 
                 # ==========================================
-                # DELTA_T UNPACKING LOGIC
+                # UNIFIED FORWARD PASS
                 # ==========================================
-                if len(batch) == 3:
-                    inputs, labels, delta_t = batch
-                    inputs = inputs.to(trainer.device)
-                    labels = labels.to(trainer.device)
-                    delta_t = delta_t.to(trainer.device)
-                    predictions = trainer.model(inputs, delta_t)
-                else:
-                    inputs, labels = batch
-                    inputs = inputs.to(trainer.device)
-                    labels = labels.to(trainer.device)
-                    predictions = trainer.model(inputs)
+                labels = batch["label"].to(trainer.device)
+                
+                # Let the Trainer handle the messy routing!
+                predictions = trainer._forward_pass(batch)
 
                 # ==========================================
                 # DYNAMIC PREVIOUS FIRE LABEL EXTRACTION
                 # ==========================================
-                if inputs.ndim == 5:
-                    # Time-Series: (Batch, Time, Channel, H, W)
-                    prev_fire_labels = inputs[:, -1, -2, :, :]
-                elif inputs.ndim == 4:
-                    # Spatial: (Batch, Channel, H, W)
-                    prev_fire_labels = inputs[:, -2, :, :]
+                # Find which tensor contains the environmental/state features
+                if "input_grids" in batch:
+                    env_features = batch["input_grids"]
+                elif "input_env" in batch:
+                    env_features = batch["input_env"]
+                elif "state" in batch:
+                    env_features = batch["state"]
                 else:
-                    raise ValueError(f"Unexpected input tensor dimensions: {inputs.shape}")
+                    raise ValueError("Unrecognized batch structure for visualization.")
 
+                # Extract the previous fire mask (-2 index based on your original logic)
+                if env_features.ndim == 5:
+                    # Time-Series: (Batch, Time, Channel, H, W)
+                    prev_fire_labels = env_features[:, -1, -2, :, :]
+                elif env_features.ndim == 4:
+                    # Spatial: (Batch, Channel, H, W)
+                    prev_fire_labels = env_features[:, -2, :, :]
+                else:
+                    raise ValueError(f"Unexpected input tensor dimensions: {env_features.shape}")
+
+                # ==========================================
+                # PROBABILITY MAPS & PREDICTIONS
+                # ==========================================
                 if predictions.shape[1] == 1:
                     # Convert raw logits to probabilities
                     pred_probs = torch.sigmoid(predictions).squeeze(1)
@@ -99,7 +109,6 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                     target_class_idx = 2 if is_3_class else 1
                     prob_maps = pred_probs_all[:, target_class_idx, :, :]
 
-                
                 # ==========================================
                 # COARSE / CLEANED LABELS GENERATION
                 # ==========================================
@@ -117,6 +126,9 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                 closed_preds = -F.max_pool2d(-dilated_preds, kernel_size=3, stride=1, padding=1)
                 coarse_preds = F.max_pool2d(closed_preds, kernel_size=downscale, stride=downscale).squeeze(1).long()
                 
+                # ==========================================
+                # IMAGE LOGGING LOOP
+                # ==========================================
                 # Check each individual image in this batch
                 for i in range(labels.size(0)):
                     if images_logged >= max_images:
@@ -124,9 +136,7 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                         
                     true_label = labels[i]
                     
-                    # ==========================================
                     # DYNAMIC FILTERING LOGIC
-                    # ==========================================
                     if is_3_class:
                         # 3-Class: Need both Old Fire (1) and New Fire (2)
                         c1_count = (true_label == 1).sum().item()
@@ -186,7 +196,6 @@ def test(trainer: Trainer, checkpoint_path: str, test_loader: DataLoader) -> flo
                         fig.colorbar(im, ax=axes[3], fraction=0.046, pad=0.04)
                         
                         # Save, log to Comet, and clean up
-                        # temp_img = f"test_vis_{images_logged}.png"
                         random_id = uuid.uuid4().hex[:6]
                         temp_img = f"test_vis_{images_logged}_{random_id}.png"
                         plt.savefig(temp_img, bbox_inches='tight')
