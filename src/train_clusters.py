@@ -9,9 +9,9 @@ from src.config import Config
 from configs import settings
 
 # Dataloders
-from src.dataloader import get_dataloaders
-from src.dataloader_timeseries import get_timeseries_dataloaders
+from src.dataloader_clusters import get_dataloaders_clusters
 # TO BE CHANGED
+from src.dataloader_timeseries import get_timeseries_dataloaders
 from src.dataloader_advanced_dual import get_advanced_dual_dataloaders
 from src.dataloader_advanced_branches import get_advanced_dataloaders_with_branches
 
@@ -105,7 +105,7 @@ class CombinedLoss(nn.Module):
         
         return (self.focal_weight * focal_l) + (self.dice_weight * dice_l)
 
-def train(config: Config) -> None:
+def train(config: Config, fold_id) -> None:
     """Sets up all components and executes the model training loop.
 
     Initializes the dataloaders, model architecture, optimizer, schedulers, 
@@ -132,7 +132,8 @@ def train(config: Config) -> None:
     ####################### MONO-TEMPORAL #######################
 
     if mc.architecture == 'unet':
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config, 
+                                                            fold_id=fold_id,
                                                             is_sat_age=False)
         model = unet.UNet(
             input_channels=mc.input_channels,
@@ -143,7 +144,8 @@ def train(config: Config) -> None:
         )
         
     elif mc.architecture == 'unet_time_gap':
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config, 
+                                                            fold_id=fold_id,
                                                             is_sat_age=True)
         model = unet_time_gap.UNet(
             input_channels=mc.input_channels,
@@ -154,7 +156,8 @@ def train(config: Config) -> None:
         )
 
     elif mc.architecture == 'unet_attention':
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                            fold_id=fold_id, 
                                                             is_sat_age=False)
         model = unet_attention.AttentionUNet(
             input_channels=mc.input_channels,
@@ -166,7 +169,8 @@ def train(config: Config) -> None:
         )
     
     elif mc.architecture == 'unet_segformer':
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                            fold_id=fold_id, 
                                                             is_sat_age=False)
         model = unet_segformer.UNetSegFormer(
             in_channels=mc.input_channels,
@@ -175,7 +179,8 @@ def train(config: Config) -> None:
     
     elif mc.architecture == 'unet_olmo_offline':
         
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                            fold_id=fold_id, 
                                                             is_sat_age=False,
                                                             is_coords=False,
                                                             is_loc_emb=False,
@@ -191,7 +196,8 @@ def train(config: Config) -> None:
         )
     
     elif mc.architecture == 'asufm':
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                            fold_id=fold_id, 
                                                             is_sat_age=False,
                                                             is_coords=False,
                                                             is_loc_emb=False)
@@ -204,7 +210,8 @@ def train(config: Config) -> None:
         )
 
     elif mc.architecture == 'simvpv2_spatial':
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                            fold_id=fold_id, 
                                                             is_sat_age=False,
                                                             is_coords=False,
                                                             is_loc_emb=False)
@@ -216,7 +223,8 @@ def train(config: Config) -> None:
 
     elif mc.architecture == 'rcda_v2':
 
-        train_loader, val_loader, test_loader = get_dataloaders(config, 
+        train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                            fold_id=fold_id, 
                                                             is_sat_age=False,
                                                             is_coords=False,
                                                             is_loc_emb=False,
@@ -239,7 +247,7 @@ def train(config: Config) -> None:
         train_loader, val_loader, test_loader = get_advanced_dual_dataloaders(config,
                                                             all_features=FULL_FEATURES,
                                                             rgb_features=RGB_FEATURES,
-                                                            env_features=ENV_FEATURES,                                                                 
+                                                            env_features=ENV_FEATURES,                                                                
                                                             is_sat_age=False,
                                                             is_coords=False,
                                                             is_loc_emb=False,
@@ -255,7 +263,8 @@ def train(config: Config) -> None:
 
     elif mc.architecture == 'umamba':
             
-            train_loader, val_loader, test_loader = get_dataloaders(config, 
+            train_loader, val_loader, test_loader = get_dataloaders_clusters(config,
+                                                                fold_id=fold_id, 
                                                                 is_sat_age=False,
                                                                 is_coords=False,
                                                                 is_loc_emb=False,
