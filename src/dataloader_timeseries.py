@@ -15,7 +15,7 @@ class TimeSeriesFireDataset(Dataset):
         self.return_positions = return_positions
         
         # Sort files to ensure consistent, reproducible ordering across runs
-        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.pt')])
+        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npz')])
         
     def __len__(self):
         return len(self.files)

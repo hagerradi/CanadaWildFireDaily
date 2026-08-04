@@ -167,7 +167,7 @@ def _update_tallies(stats, feat_name, valid_pixels):
     if current_max > stats[feat_name]['max']:
         stats[feat_name]['max'] = current_max
 
-def calculate_h5_statistics(h5_dir, mapper, train_ids, patch_size=256, stats_filename='dataset_stats.json'):
+def calculate_h5_statistics(h5_dir, mapper, train_ids, patch_size=256, stats_filename='dataset_stats.json', remove_missing_data=True):
     """Scans through H5 files based on UNIQUE (Tile, DOB) pairs to compute global stats.
     - Prevents double-counting overlapping fires.
     - Explicitly skips Satellite, NDVI, and EVI for stats generation.
@@ -178,6 +178,7 @@ def calculate_h5_statistics(h5_dir, mapper, train_ids, patch_size=256, stats_fil
       train_ids: the list of training ids
       patch_size: the target grid size (Default value = 256)
       stats_filename: the json file's name to store the stats (Default value = 'dataset_stats.json')
+      remove_missing_data: toggle to skip samples with missing data
 
     Returns:
 
@@ -237,7 +238,7 @@ def calculate_h5_statistics(h5_dir, mapper, train_ids, patch_size=256, stats_fil
                 if h != patch_size or w != patch_size:
                     continue 
                     
-                if "quality_mask" in day_group:
+                if remove_missing_data and "quality_mask" in day_group:
                     continue
 
                 # --- PROCESS STATIC FEATURES (Run once per Tile) ---

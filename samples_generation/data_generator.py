@@ -17,14 +17,15 @@ from samples_generation.data_generator_helper import create_stratified_splits, c
 
 from configs import settings
 
+from samples_generation.samples_configs.samples_settings import DYNAMIC_FEATURES, STATIC_FEATURES, TARGET_YEARS, RANDOM_SEED, REMOVE_MISSING_DATA
+
 class H5FireSimpleDataset(Dataset):
-    """ """
     
     def __init__(self, h5_dir, id_list, mapper, dynamic_features, static_features=None, 
                  fire_feature='firearea', patch_size=256, 
                  use_cumuarea_prev=False, use_cumuarea=False, transform=None,
                  normalize=False, stats_dict=None, sat_nodata=0, 
-                 use_cyclical_aspect=False, return_sat_age=False):
+                 use_cyclical_aspect=False, return_sat_age=False, remove_missing_data=False):
         
         self.h5_dir = h5_dir
         self.id_list = [str(fid) for fid in id_list] 
@@ -40,13 +41,14 @@ class H5FireSimpleDataset(Dataset):
         self.use_cumuarea = use_cumuarea            
         self.transform = transform
 
-        # --- NORMALIZATION PARAMS ---
+        # Normalization params
         self.normalize = normalize
         self.stats_dict = stats_dict
         self.sat_nodata = sat_nodata
         
         self.use_cyclical_aspect = use_cyclical_aspect
         self.return_sat_age = return_sat_age
+        self.remove_missing_data = remove_missing_data
         
         # Safety check
         if self.normalize and self.stats_dict is None:
@@ -62,13 +64,12 @@ class H5FireSimpleDataset(Dataset):
         self.num_channels = base_channels
         
         self.samples = [] 
-        # self.open_h5_handles = {}
         self.open_h5_handles = OrderedDict()
         self.max_open_files = 700
         
         self._index_files()
 
-    # --- HELPER METHODS ---
+    # Helper Methods
     def _get_expected_date(self, day_group) -> str | None:
         """Extracts the fire day date.
 
@@ -199,19 +200,17 @@ class H5FireSimpleDataset(Dataset):
                 with h5py.File(file_path, 'r') as f:
                     curr_day_group = f[f"{tile_id}/days/{primary_fire['day_key']}"]
                     
-                    # --- SIZE CHECK ---
+                    # SIZE CHECK
                     sample_feat = list(curr_day_group['features'].keys())[0]
                     h, w = curr_day_group[f'features/{sample_feat}'].shape
                     if h != self.patch_size or w != self.patch_size:
                         continue 
                         
-                    # ========================================================
                     # QUALITY MASK CHECK
-                    # ========================================================
-                    if "quality_mask" in curr_day_group:
+                    if self.remove_missing_data and "quality_mask" in curr_day_group:
                         continue
 
-                    # --- CALCULATE SAT AGE ---
+                    # CALCULATE SAT AGE
                     delta_t_days = 0.0
                     if self.return_sat_age:
                         exp_date_str = self._get_expected_date(curr_day_group)
@@ -255,7 +254,7 @@ class H5FireSimpleDataset(Dataset):
         s = self.samples[idx]
         tile_id = s['tile_id']
         
-        # Pre-allocate input tensor with ZEROS safely
+        # Pre-allocate input tensor with zeros safely
         x_tensor = torch.zeros((self.num_channels, self.patch_size, self.patch_size), dtype=torch.float32)
         
         # Load Environment from PRIMARY Fire (Because Topo/Weather/Sat are identical)
@@ -269,7 +268,6 @@ class H5FireSimpleDataset(Dataset):
             arr_patch = curr_day_group[path][:].astype(np.float32)
             
             if is_sat:
-                # arr_patch = np.ascontiguousarray(np.flipud(arr_patch))
                 
                 if np.isnan(self.sat_nodata):
                     valid_mask = ~np.isnan(arr_patch)
@@ -283,7 +281,7 @@ class H5FireSimpleDataset(Dataset):
             else:
                 valid_mask = ~np.isnan(arr_patch)
             
-            # --- NORMALIZATION LOGIC ---
+            # NORMALIZATION LOGIC
             if self.normalize and feat_name in self.stats_dict and feat_name != self.fire_feature and not is_sat:
                 if feat_name not in ['ndvi', 'evi']:
                     mean = self.stats_dict[feat_name]['mean']
@@ -294,7 +292,7 @@ class H5FireSimpleDataset(Dataset):
             x_tensor[channel_idx] = torch.from_numpy(arr_patch)
             channel_idx += 1
             
-        # 3. Load Statics
+        # Load Statics
         if self.static_features and f"{tile_id}/static_features" in f_primary:
             static_group = f_primary[f"{tile_id}/static_features"]
             for feature in self.static_features:
@@ -320,9 +318,7 @@ class H5FireSimpleDataset(Dataset):
                 x_tensor[channel_idx] = torch.from_numpy(arr_patch)
                 channel_idx += 1
 
-        # ---------------------------------------------------------
-        # 4. Process Fire Masks (Dynamic Aggregation of All Overlaps)
-        # ---------------------------------------------------------
+        # Process Fire Masks (Dynamic Aggregation of All Overlaps)
         curr_fire_mask = torch.zeros((self.patch_size, self.patch_size), dtype=torch.bool)
         fireday_grid = torch.zeros((self.patch_size, self.patch_size), dtype=torch.float32)
         
@@ -362,9 +358,7 @@ class H5FireSimpleDataset(Dataset):
         x_tensor[-2] = curr_fire_mask.float()
         x_tensor[-1] = fireday_grid
 
-        # ---------------------------------------------------------
-        # B. Determine NEXT DAY mask (Output Label)
-        # ---------------------------------------------------------
+        # Determine NEXT DAY mask (Output Label)
         raw_next_mask = torch.zeros((self.patch_size, self.patch_size), dtype=torch.bool)
         
         for fire_dict in s['next_fires']:
@@ -439,10 +433,9 @@ def generate_simple_offline_data(config: Config) -> None:
 
     is_sat_age = True
 
-    dynamic_feats = ['tmax', 'rh', 'ws', 'prec', 'u10', 'v10', 'evi', 'ndvi', 
-                     's2_b02', 's2_b03', 's2_b04', 's2_b08', 's2_b11', 's2_b12', 's2_scl']
-    static_feats = ['dem', 'slope', 'aspect', 'biomass', 'closure', 'prcb', 'prcc']
-    target_years = ["2020", "2021", "2022", "2023", "2024"] 
+    dynamic_feats = DYNAMIC_FEATURES
+    static_feats = STATIC_FEATURES
+    target_years = TARGET_YEARS
     
     # ---------------------------------------------------------
     # LOAD MAPPERS & DATAFRAMES
@@ -472,7 +465,8 @@ def generate_simple_offline_data(config: Config) -> None:
         dynamic_features=dynamic_feats, static_features=static_feats,
         fire_feature="cumuarea", patch_size=settings.GRID_SIZE,
         use_cumuarea=tc.use_cumuarea, use_cumuarea_prev=tc.use_cumuarea_prev,
-        normalize=False, stats_dict=None, sat_nodata=np.nan
+        normalize=False, stats_dict=None, sat_nodata=np.nan,
+        remove_missing_data=REMOVE_MISSING_DATA
     )
     
     retained_ids = set()
@@ -488,7 +482,7 @@ def generate_simple_offline_data(config: Config) -> None:
     fire_growth_filtered = fire_growth_combined[fire_growth_combined['ID'].astype(str).isin(retained_ids)]
 
     train_ids, val_ids, test_ids = create_stratified_splits(
-        fire_growth_filtered, train_split=tc.train_split, random_state=42, overlap_mapper=master_mapper
+        fire_growth_filtered, train_split=tc.train_split, random_state=RANDOM_SEED, overlap_mapper=master_mapper
     )
 
     del dfs, fire_growth_combined, fire_growth_filtered
@@ -501,7 +495,8 @@ def generate_simple_offline_data(config: Config) -> None:
         settings.H5_OUTPUT_FOLDER, 
         master_mapper,
         train_ids,
-        stats_filename="simple_dataset_stats.json"
+        stats_filename="simple_dataset_stats.json",
+        remove_missing_data=REMOVE_MISSING_DATA
     )
 
 
@@ -511,7 +506,8 @@ def generate_simple_offline_data(config: Config) -> None:
         'fire_feature': "cumuarea", 'patch_size': settings.GRID_SIZE,
         'use_cumuarea': tc.use_cumuarea, 'use_cumuarea_prev': tc.use_cumuarea_prev,
         'normalize': True, 'stats_dict': stats_dict, 'sat_nodata': np.nan,
-        'use_cyclical_aspect': tc.use_cyclical_aspect, 'return_sat_age': is_sat_age
+        'use_cyclical_aspect': tc.use_cyclical_aspect, 'return_sat_age': is_sat_age,
+        'remove_missing_data': REMOVE_MISSING_DATA
     }
 
     # ---------------------------------------------------------

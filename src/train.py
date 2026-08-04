@@ -12,7 +12,7 @@ from src.dataloader_timeseries import get_timeseries_dataloaders
 
 # Models
 from src.models import unet
-from src.models import unet_age
+from src.models import unet_time_gap
 from src.models import unet_convlstm
 from src.models import unet_attention
 from src.models import unet_segformer
@@ -86,10 +86,10 @@ def train(config: Config) -> None:
             use_activation_after_upsampling=mc.use_activation_after_upsampling,
         )
         
-    elif mc.architecture == 'unet_age':
+    elif mc.architecture == 'unet_time_gap':
         train_loader, val_loader, test_loader = get_dataloaders(config, 
                                                             is_sat_age=True)
-        model = unet_age.UNet(
+        model = unet_time_gap.UNet(
             input_channels=mc.input_channels,
             num_classes=mc.num_classes,
             hidden_features=mc.hidden_features,

@@ -7,6 +7,11 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import uuid
+import numpy as np
+
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -21,12 +26,10 @@ from torchmetrics.classification import (
     BinaryF1Score,         # Binary Dice
     BinaryPrecision, 
     BinaryRecall, 
-    BinaryAUROC, 
-    BinaryAveragePrecision # AUC-PR
+    BinaryAveragePrecision,
+    BinaryPrecisionRecallCurve
 )
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-import uuid
+from sklearn.metrics import auc
 
 from src.config import TrainingConfig
 
@@ -40,7 +43,7 @@ class Trainer:
     Args:
         model: PyTorch model to train.
         optimizer: Optimizer instance.
-        scheduler: Scheduler instqnce.
+        scheduler: Scheduler instance.
         loss_fn: Loss function (criterion).
         config: Training-specific configuration.
         logger: Optional :class:`~src.logger.CometLogger` instance.  When
@@ -71,8 +74,8 @@ class Trainer:
         # Initialize separate metrics for train and validation phases
         self.train_metrics = self._init_metrics()
         self.val_metrics = self._init_metrics()
-        # TEMP
-        self.val_metrics_filtered = self._init_metrics()
+        # Coarse resolution
+        self.val_metrics_coarse = self._init_metrics()
 
         if self.logger is not None:
             self.logger.log_params(
@@ -82,7 +85,7 @@ class Trainer:
                     "learning_rate": config.learning_rate,
                     "weight_decay": config.weight_decay,
                     "device": str(self.device),
-                    "notes":"With satellite - dynamic flexible classes (Train & Val Metrics tracked)",
+                    "notes":"Training, validation, and testing",
                 }
             )
 
@@ -104,11 +107,11 @@ class Trainer:
         best_val_iou = -float('inf')
 
         # Determine the target key to track based on our config
-        target_metric_key = "Val_Macro_IoU" if self.config.use_cumuarea else "Val_IoU_1_New_Fire"
+        target_metric_key = "Val_IoU_2_New_Fire" if self.config.use_cumuarea else "Val_IoU"
 
         for epoch in range(1, self.config.num_epochs + 1):
             train_loss, train_metrics_results = self.train_epoch(train_loader, epoch)
-            val_loss, val_metrics_results = self.validate(val_loader, epoch)
+            val_loss, val_metrics_results = self.validate(val_loader, "Val", epoch)
             
             current_val_iou = val_metrics_results[target_metric_key]
 
@@ -153,13 +156,13 @@ class Trainer:
         for batch_idx, batch_data in pbar:
 
             if len(batch_data) == 3:
-                images, masks, delta_t = batch_data
+                images, labels, delta_t = batch_data
                 delta_t = delta_t.to(self.device)
             else:
-                images, masks = batch_data
+                images, labels = batch_data
            
             images: Tensor = images.to(self.device)
-            masks: Tensor = masks.long().to(self.device)
+            labels: Tensor = labels.long().to(self.device)
 
             self.optimizer.zero_grad()
 
@@ -168,7 +171,7 @@ class Trainer:
             else:
                 predictions = self.model(images)
 
-            loss: Tensor = self.loss_fn(predictions, masks)
+            loss: Tensor = self.loss_fn(predictions, labels)
                 
             loss.backward()
             
@@ -180,7 +183,7 @@ class Trainer:
 
             # Update train metrics without tracking gradients for the metric computation
             with torch.no_grad():
-                self._update_metrics(self.train_metrics, predictions.detach(), masks)
+                self._update_metrics(self.train_metrics, predictions.detach(), labels)
 
             if (batch_idx + 1) % self.config.log_interval == 0:
                 avg = total_loss / (batch_idx + 1)
@@ -190,7 +193,7 @@ class Trainer:
         train_metric_results = self._compute_and_reset_metrics(self.train_metrics, prefix="Train_")
         return total_loss / len(loader), train_metric_results
 
-    def validate(self, loader: DataLoader, epoch: int | None = None) -> tuple[float, dict[str, float]]:
+    def validate(self, loader: DataLoader, prefix: str = "Val", epoch: int | None = None) -> tuple[float, dict[str, float]]:
         self.model.eval()
         total_loss = 0.0
 
@@ -200,77 +203,63 @@ class Trainer:
         with torch.no_grad():
             for batch_idx, batch in enumerate(pbar):
                 
-                images, masks = batch[0], batch[1]
+                images, labels = batch[0], batch[1]
                 
                 images: Tensor = images.to(self.device)
-                masks: Tensor = masks.long().to(self.device)
+                labels: Tensor = labels.long().to(self.device)
 
                 if len(batch) == 3:
                     delta_t = batch[2]
                     delta_t = delta_t.to(self.device)
-                
-                if len(batch) == 3:
                     predictions = self.model(images, delta_t)
                 else:
                     predictions = self.model(images)
 
-                loss: Tensor = self.loss_fn(predictions, masks)
+                loss: Tensor = self.loss_fn(predictions, labels)
                 total_loss += loss.item()
 
                 # Update validation metrics
-                self._update_metrics(self.val_metrics, predictions, masks)
+                self._update_metrics(self.val_metrics, predictions, labels)
 
                 # ==========================================================
                 # EXPERIMENTAL COARSE + CLEANED METRICS BLOCK START
                 # ==========================================================
-                downscale = 2  # Set to 2 for 180m, or 4 for 360m
-
-                # ----------------------------------------------------------
-                # 1. CLEAN THE NOISY GROUND TRUTH (Binary Closing)
-                # ----------------------------------------------------------
-                raw_masks = masks.float().unsqueeze(1)
+                downscale = 2  # Set to 2 for 180m
                 
-                # Dilation: Fills in the accidental gaps in your manual grid
-                dilated_masks = F.max_pool2d(raw_masks, kernel_size=3, stride=1, padding=1)
+                # Clean the noisy ground truth (Binary Closing)
+                raw_labels = labels.float().unsqueeze(1)
+                # Dilation: Fills in the accidental gaps in the manual grid
+                dilated_labels = F.max_pool2d(raw_labels, kernel_size=3, stride=1, padding=1)
                 # Erosion (Negative-Max Trick): Shrinks the inflated perimeter back to normal
-                closed_masks = -F.max_pool2d(-dilated_masks, kernel_size=3, stride=1, padding=1)
+                closed_labels = -F.max_pool2d(-dilated_labels, kernel_size=3, stride=1, padding=1)
+                # Downsample the CLEANED labels
+                coarse_labels = F.max_pool2d(closed_labels, kernel_size=downscale, stride=downscale).squeeze(1).long()
                 
-                # Downsample the CLEANED masks
-                coarse_masks = F.max_pool2d(closed_masks, kernel_size=downscale, stride=downscale).squeeze(1).long()
-                
-                # ----------------------------------------------------------
-                # 2. CLEAN THE PREDICTIONS (Binary Closing)
-                # ----------------------------------------------------------
-                # Dilation: Fills in the model's "salt-and-pepper" holes
+                # Clean the predictions (Binary Closing)
                 dilated_preds = F.max_pool2d(predictions, kernel_size=3, stride=1, padding=1)
-                # Erosion: Shrinks the inflated perimeter back to normal
                 closed_preds = -F.max_pool2d(-dilated_preds, kernel_size=3, stride=1, padding=1)
-
-                # Downsample the CLEANED predictions
                 coarse_preds = F.max_pool2d(closed_preds, kernel_size=downscale, stride=downscale)
 
-                # ----------------------------------------------------------
-                # 3. CALCULATE METRICS
-                # ----------------------------------------------------------
-                self._update_metrics(self.val_metrics_filtered, coarse_preds, coarse_masks)
+                # Calculate metrics
+                self._update_metrics(self.val_metrics_coarse, coarse_preds, coarse_labels)
                 # ==========================================================
 
-                # --- UPGRADED IMAGE LOGGING LOGIC ---
+                # IMAGE LOGGING
                 if not logged_image_this_epoch and self.logger is not None and epoch is not None:
                     min_pixels = 30
                     selected_idx = -1
                     is_3_class = self.config.use_cumuarea
                     vmax_val = 2 if is_3_class else 1
                     
-                    for i in range(masks.size(0)):
-                        current_mask = masks[i]
+                    for i in range(labels.size(0)):
+                        current_label = labels[i]
                         
                         if is_3_class:
-                            c1_count = (current_mask == 1).sum().item()
-                            c2_count = (current_mask == 2).sum().item()
+                            c1_count = (current_label== 1).sum().item()
+                            c2_count = (current_label == 2).sum().item()
                             is_interesting = (c1_count >= min_pixels) and (c2_count >= min_pixels)
                         else:
-                            c1_count = (current_mask == 1).sum().item()
+                            c1_count = (current_label == 1).sum().item()
                             is_interesting = (c1_count >= min_pixels)
                         
                         if is_interesting:
@@ -284,22 +273,21 @@ class Trainer:
                         # Grab predictions for the selected image to plot
                         if predictions.shape[1] == 1:
                             pred_probs = torch.sigmoid(predictions[selected_idx]).squeeze(0)
-                            pred_mask = (pred_probs > self.binary_classification_threshold).long().cpu().numpy()
+                            pred_label = (pred_probs > self.binary_classification_threshold).long().cpu().numpy()
                         else:
-                            pred_mask = torch.argmax(predictions[selected_idx], dim=0).cpu().numpy()
+                            pred_label = torch.argmax(predictions[selected_idx], dim=0).cpu().numpy()
 
-                        true_mask = masks[selected_idx].cpu().numpy()
+                        true_label = labels[selected_idx].cpu().numpy()
                         
                         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-                        axes[0].imshow(true_mask, cmap='viridis', vmin=0, vmax=vmax_val)
+                        axes[0].imshow(true_label, cmap='viridis', vmin=0, vmax=vmax_val)
                         axes[0].set_title("Ground Truth")
                         axes[0].axis('off')
                         
-                        axes[1].imshow(pred_mask, cmap='viridis', vmin=0, vmax=vmax_val)
+                        axes[1].imshow(pred_label, cmap='viridis', vmin=0, vmax=vmax_val)
                         axes[1].set_title(f"Prediction (Epoch {epoch})")
                         axes[1].axis('off')
                         
-                        # temp_img_path = f"temp_val_epoch_{epoch}.png"
                         random_id = uuid.uuid4().hex[:6]
                         temp_img_path = f"temp_val_epoch_{epoch}_{random_id}.png"
                         plt.savefig(temp_img_path, bbox_inches='tight')
@@ -313,11 +301,11 @@ class Trainer:
                 pbar.set_postfix({"loss": f"{(total_loss / (batch_idx + 1)):.4f}"})
 
         # Compute final val metrics and reset states for the next epoch
-        val_raw_results = self._compute_and_reset_metrics(self.val_metrics, prefix="Val_")
-        val_filtered_results = self._compute_and_reset_metrics(self.val_metrics_filtered, prefix="Val_Masked_")
+        val_raw_results = self._compute_and_reset_metrics(self.val_metrics, prefix=f"{prefix}_")
+        val_coarse_results = self._compute_and_reset_metrics(self.val_metrics_coarse, prefix=f"{prefix}_Coarse_")
         
         # Merge both dictionaries into one so Comet logs everything
-        val_metric_results = {**val_raw_results, **val_filtered_results}
+        val_metric_results = {**val_raw_results, **val_coarse_results}
         
         return total_loss / len(loader), val_metric_results
 
@@ -352,11 +340,11 @@ class Trainer:
             metrics['dice'] = BinaryF1Score(threshold=self.binary_classification_threshold).to(self.device)
             metrics['precision'] = BinaryPrecision().to(self.device)
             metrics['recall'] = BinaryRecall().to(self.device)
-            # metrics['auroc'] = BinaryAUROC().to(self.device)
-            # metrics['aucpr'] = BinaryAveragePrecision().to(self.device)
+            metrics['ap'] = BinaryAveragePrecision(thresholds=200).to(self.device)
+            metrics['aucpr'] = BinaryPrecisionRecallCurve(thresholds=200).to(self.device)
         return metrics
 
-    def _update_metrics(self, metrics_dict: dict[str, nn.Module], predictions: Tensor, masks: Tensor) -> None:
+    def _update_metrics(self, metrics_dict: dict[str, nn.Module], predictions: Tensor, labels: Tensor) -> None:
         """Process model predictions and update the provided metrics dictionary."""
         pred_probs = None
         
@@ -366,14 +354,16 @@ class Trainer:
         else:
             pred_classes = torch.argmax(predictions, dim=1)
 
-        metrics_dict['iou'].update(pred_classes, masks)
-        metrics_dict['dice'].update(pred_classes, masks)
+        metrics_dict['iou'].update(pred_classes, labels)
+        metrics_dict['dice'].update(pred_classes, labels)
 
         if not self.config.use_cumuarea and pred_probs is not None:
-            metrics_dict['precision'].update(pred_classes, masks)
-            metrics_dict['recall'].update(pred_classes, masks)
-            # metrics_dict['auroc'].update(pred_probs, masks)
-            # metrics_dict['aucpr'].update(pred_probs, masks)
+            metrics_dict['precision'].update(pred_classes, labels)
+            metrics_dict['recall'].update(pred_classes, labels)
+            if 'ap' in metrics_dict:
+                metrics_dict['ap'].update(pred_probs, labels)
+            if 'aucpr' in metrics_dict:
+                metrics_dict['aucpr'].update(pred_probs, labels)
 
     def _compute_and_reset_metrics(self, metrics_dict: dict[str, nn.Module], prefix: str = "") -> dict[str, float]:
         """Compute the final scores from the tracker, map them to a dict, and reset the states."""
@@ -383,11 +373,11 @@ class Trainer:
         final_metrics = {}
 
         if self.config.use_cumuarea:
-            valid_iou_mask = class_ious != -1
-            macro_iou = class_ious[valid_iou_mask].mean().item() if valid_iou_mask.any() else 0.0
+            valid_iou_label = class_ious != -1
+            macro_iou = class_ious[valid_iou_label].mean().item() if valid_iou_label.any() else 0.0
 
-            valid_dice_mask = class_dices != -1
-            macro_dice = class_dices[valid_dice_mask].mean().item() if valid_dice_mask.any() else 0.0
+            valid_dice_label = class_dices != -1
+            macro_dice = class_dices[valid_dice_label].mean().item() if valid_dice_label.any() else 0.0
             
             final_metrics.update({
                 f"{prefix}Macro_IoU": macro_iou,
@@ -401,13 +391,25 @@ class Trainer:
             })
         else:
             final_metrics.update({
-                f"{prefix}IoU_1_New_Fire": class_ious.item(),
-                f"{prefix}Dice_1_New_Fire": class_dices.item(),
+                f"{prefix}IoU": class_ious.item(),
+                f"{prefix}F1": class_dices.item(),
                 f"{prefix}Precision": metrics_dict['precision'].compute().item(),
                 f"{prefix}Recall": metrics_dict['recall'].compute().item(),
-                # f"{prefix}AUC_ROC": metrics_dict['auroc'].compute().item(),
-                # f"{prefix}AUC_PR": metrics_dict['aucpr'].compute().item(),
             })
+
+            if 'ap' in metrics_dict:
+                final_metrics[f"{prefix}Average_Precision"] = metrics_dict['ap'].compute().item()
+            
+            if 'aucpr' in metrics_dict:
+                # Get the curve arrays
+                precision, recall, _ = metrics_dict['aucpr'].compute()
+                # Move to CPU and compute AUC PR using scikit-learn
+                precision_np = precision.cpu().numpy()
+                recall_np = recall.cpu().numpy()
+                # Replace any NaNs (from 0/0 division) with 1.0 to anchor the Y-axis
+                clean_precision = np.nan_to_num(precision_np, nan=1.0)
+                # Calculate the true trapezoidal area using scikit-learn
+                final_metrics[f"{prefix}AUC_PR"] = auc(recall_np, clean_precision)
 
         # Reset all metrics for the next pass
         for metric in metrics_dict.values():

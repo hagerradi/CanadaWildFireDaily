@@ -16,7 +16,7 @@ class DailyFireDataset(Dataset):
         self.return_sat_age = return_sat_age
         
         # Sort files to ensure consistent, reproducible ordering across runs
-        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.pt')])
+        self.files = sorted([f for f in os.listdir(data_dir) if f.endswith('.npz')])
         
     def __len__(self):
         return len(self.files)

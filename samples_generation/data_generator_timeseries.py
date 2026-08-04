@@ -16,6 +16,8 @@ from samples_generation.data_generator_helper import create_stratified_splits, c
 
 from configs import settings
 
+from samples_generation.samples_configs.samples_settings import DYNAMIC_FEATURES, STATIC_FEATURES, TARGET_YEARS, RANDOM_SEED, REMOVE_MISSING_DATA
+
 class H5FireTimeSeriesDataset(Dataset):
     """
     Dataset to contruct the time series samples from the H5 files
@@ -25,7 +27,7 @@ class H5FireTimeSeriesDataset(Dataset):
                  fire_feature='firearea', patch_size=256, seq_length=3,
                  use_cumuarea_prev=False, use_cumuarea=False, transform=None,
                  normalize=False, stats_dict=None, sat_nodata=0, 
-                 use_cyclical_aspect=False):
+                 use_cyclical_aspect=False, remove_missing_data=False):
         
         self.h5_dir = h5_dir
         self.id_list = [str(fid) for fid in id_list] 
@@ -44,16 +46,17 @@ class H5FireTimeSeriesDataset(Dataset):
         self.use_cumuarea = use_cumuarea            
         self.transform = transform
 
-        # --- NORMALIZATION PARAMS ---
+        # Normalization params
         self.normalize = normalize
         self.stats_dict = stats_dict
         self.sat_nodata = sat_nodata
         
         self.use_cyclical_aspect = use_cyclical_aspect
+        self.remove_missing_data = remove_missing_data
         
         # Safety check
         if self.normalize and self.stats_dict is None:
-            raise ValueError("If normalize=True, you must provide the stats_dict!")
+            raise ValueError("If normalize=True, you must provide the stats_dict.")
         
         # +2 to account for BOTH the binary fire mask AND the fireday grid
         base_channels = len(self.dynamic_features) + len(self.static_features) + 2
@@ -70,7 +73,7 @@ class H5FireTimeSeriesDataset(Dataset):
         
         self._index_files()
 
-    # --- HELPER METHODS ---
+    # Helper Methods
     def _get_expected_date(self, day_group) -> str | None:
         """Extracts the fire day date.
 
@@ -139,9 +142,7 @@ class H5FireTimeSeriesDataset(Dataset):
             sequence_valid = True
             sequence_fires_list = []
             
-            # =======================================================
-            # 1. BUILD INPUT SEQUENCE (T, T+1, T+2 ...)
-            # =======================================================
+            # BUILD INPUT SEQUENCE (T, T+1, T+2 ...)
             for step in range(self.seq_length):
                 curr_dob = start_dob + step
                 curr_key = f"{tile_id}_DOB_{year}_{curr_dob}"
@@ -168,7 +169,7 @@ class H5FireTimeSeriesDataset(Dataset):
                             break
                             
                         # QUALITY MASK CHECK
-                        if "quality_mask" in day_group:
+                        if self.remove_missing_data and "quality_mask" in day_group:
                             sequence_valid = False
                             break
                             
@@ -181,9 +182,7 @@ class H5FireTimeSeriesDataset(Dataset):
             if not sequence_valid:
                 continue # Discard sample if any input day is broken/missing
 
-            # =======================================================
-            # 2. CHECK TARGET DAY (T + seq_length)
-            # =======================================================
+            # CHECK TARGET DAY (T + seq_length)
             target_dob = start_dob + self.seq_length
             target_key = f"{tile_id}_DOB_{year}_{target_dob}"
             
@@ -232,13 +231,12 @@ class H5FireTimeSeriesDataset(Dataset):
             
             channel_idx = 0
 
-            # --- Load Dynamics & Satellite ---
+            # Load Dynamics & Satellite
             for path, is_sat in zip(s['feature_paths'], s['is_sat_flags']):
                 feat_name = path.split('/')[-1]
                 arr_patch = step_day_group[path][:].astype(np.float32)
             
                 if is_sat:
-                    # arr_patch = np.ascontiguousarray(np.flipud(arr_patch))
                     
                     if np.isnan(self.sat_nodata):
                         valid_mask = ~np.isnan(arr_patch)
@@ -252,7 +250,7 @@ class H5FireTimeSeriesDataset(Dataset):
                 else:
                     valid_mask = ~np.isnan(arr_patch)
                 
-                # --- NORMALIZATION LOGIC ---
+                # Normalization Logic
                 if self.normalize and feat_name in self.stats_dict and feat_name != self.fire_feature and not is_sat:
                     if feat_name not in ['ndvi', 'evi']:
                         mean = self.stats_dict[feat_name]['mean']
@@ -261,11 +259,11 @@ class H5FireTimeSeriesDataset(Dataset):
                 
                 arr_patch[~valid_mask] = 0.0
                 
-                # FIXED: Assign to the specific time step (t_idx)
+                # Assign to the specific time step (t_idx)
                 x_tensor[t_idx, channel_idx] = torch.from_numpy(arr_patch)
                 channel_idx += 1
             
-            # 3. Load Statics
+            # Load Statics
             if self.static_features and f"{tile_id}/static_features" in f_primary:
                 static_group = f_primary[f"{tile_id}/static_features"]
                 for feature in self.static_features:
@@ -276,7 +274,7 @@ class H5FireTimeSeriesDataset(Dataset):
                         aspect_sin = np.sin(aspect_rad)
                         aspect_cos = np.cos(aspect_rad)
                         
-                        # FIXED: Assign to the specific time step (t_idx)
+                        # Assign to the specific time step (t_idx)
                         x_tensor[t_idx, channel_idx] = torch.from_numpy(aspect_sin)
                         channel_idx += 1
                         x_tensor[t_idx, channel_idx] = torch.from_numpy(aspect_cos)
@@ -293,9 +291,7 @@ class H5FireTimeSeriesDataset(Dataset):
                     x_tensor[t_idx, channel_idx] = torch.from_numpy(arr_patch)
                     channel_idx += 1
 
-            # ---------------------------------------------------------
-            # 4. Process Fire Masks (Dynamic Aggregation of All Overlaps)
-            # ---------------------------------------------------------
+            # Process Fire Masks (Dynamic Aggregation of All Overlaps)
             curr_fire_mask = torch.zeros((self.patch_size, self.patch_size), dtype=torch.bool)
             fireday_grid = torch.zeros((self.patch_size, self.patch_size), dtype=torch.float32)
             
@@ -332,13 +328,11 @@ class H5FireTimeSeriesDataset(Dataset):
                         
                     curr_fire_mask |= day_mask
                     
-            # FIXED: Assign to the specific time step (t_idx)
+            # Assign to the specific time step (t_idx)
             x_tensor[t_idx, -2] = curr_fire_mask.float()
             x_tensor[t_idx, -1] = fireday_grid
 
-        # ---------------------------------------------------------
-        # B. Determine NEXT DAY mask (Output Label)
-        # ---------------------------------------------------------
+        # Determine NEXT DAY mask (Output Label)
         raw_next_mask = torch.zeros((self.patch_size, self.patch_size), dtype=torch.bool)
         
         for fire_dict in s['next_fires']:
@@ -411,18 +405,10 @@ def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
     
     tc = config.training
 
-    dynamic_feats = [
-        'tmax', 'rh', 'ws', 'prec', 'u10', 'v10',
-        'evi', 'ndvi', 
-        's2_B02', 's2_B03', 's2_B04', 's2_B08', 's2_B11', 's2_B12',
-        's2_SCL'
-    ]
-    dynamic_feats = [feat.lower() for feat in dynamic_feats]
-    static_feats = [
-        'dem', 'slope', 'aspect', 'biomass', 'closure', 'prcb', 'prcc'
-    ]
+    dynamic_feats = DYNAMIC_FEATURES
+    static_feats = STATIC_FEATURES
     
-    target_years = ["2020", "2021", "2022", "2023", "2024"] 
+    target_years = TARGET_YEARS
     
     # ---------------------------------------------------------
     # LOAD AND MERGE YEARLY MAPPERS
@@ -473,7 +459,8 @@ def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
         use_cumuarea_prev=tc.use_cumuarea_prev,
         normalize=False, 
         stats_dict=None, 
-        sat_nodata=np.nan
+        sat_nodata=np.nan,
+        remove_missing_data=REMOVE_MISSING_DATA
     )
 
     # Since multiple fires can exist in one sample, we gather all unique fire_ids that made the cut
@@ -498,7 +485,7 @@ def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
 
     train_ids, val_ids, test_ids = create_stratified_splits(fire_growth_filtered, 
                                                             train_split=tc.train_split,
-                                                            random_state=42,
+                                                            random_state=RANDOM_SEED,
                                                             overlap_mapper=master_mapper)
     print(len(train_ids), len(val_ids), len(test_ids))
 
@@ -511,7 +498,8 @@ def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
     stats_dict = calculate_h5_statistics(settings.H5_OUTPUT_FOLDER, 
                                          master_mapper,
                                          train_ids,
-                                         stats_filename="timeseries_dataset_stats.json")
+                                         stats_filename="timeseries_dataset_stats.json",
+                                         remove_missing_data=REMOVE_MISSING_DATA)
 
     common_kwargs = {
         'h5_dir': settings.H5_OUTPUT_FOLDER,
@@ -526,7 +514,8 @@ def generate_timeseries_offline_data(config: Config, seq_length: int) -> None:
         'normalize': True,
         'stats_dict': stats_dict,
         'sat_nodata': np.nan,
-        'use_cyclical_aspect': tc.use_cyclical_aspect
+        'use_cyclical_aspect': tc.use_cyclical_aspect,
+        'remove_missing_data': REMOVE_MISSING_DATA
     }
 
     train_dataset = H5FireTimeSeriesDataset( 
