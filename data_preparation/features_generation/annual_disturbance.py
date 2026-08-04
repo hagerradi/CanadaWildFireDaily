@@ -4,29 +4,11 @@ import rioxarray
 import xarray as xr
 import h5py
 
-SCANFI_VARS = {
-    # Original Variables
-    'Biomass': 'SCANFI_att_biomass',
-    'Closure': 'SCANFI_att_closure',
-    'prcC': 'SCANFI_spsCC_otherConiferous',
-    'prcB': 'SCANFI_spsCC_broadleaf',
-    
-    # New Continuous Variables
-    'age': 'SCANFI_age_median',
-    'height': 'SCANFI_att_height',
-    
-    # New Species Crown Closures
-    'prc_balsam_fir': 'SCANFI_spsCC_balsamFir',
-    'prc_black_spruce': 'SCANFI_spsCC_blackSpruce',
-    'prc_douglas_fir': 'SCANFI_spsCC_douglasFir',
-    'prc_jack_pine': 'SCANFI_spsCC_jackPine',
-    'prc_lodgepole_pine': 'SCANFI_spsCC_lodgepolePine',
-    'prc_ponderosa_pine': 'SCANFI_spsCC_ponderosaPine',
-    'prc_tamarack': 'SCANFI_spsCC_tamarack',
-    'prc_white_red_pine': 'SCANFI_spsCC_whiteRedPine'
+DISTURBANCE_VARS = {
+    'annual_disturbance': 'canlad_annual'
 }
 
-def extract_scanfi_for_grid(tif_path, easting_grid, northing_grid):
+def extract_annual_disturbance_for_grid(tif_path, easting_grid, northing_grid):
     """Extracts 2D grid data from a 90m TIFF file directly.
     NO TRANSFORMATION APPLIED. Assumes grids and TIF share the exact same CRS.
 
@@ -61,30 +43,27 @@ def extract_scanfi_for_grid(tif_path, easting_grid, northing_grid):
         return sampled.values
     
 
-def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
+def run_single_fire_annual_disturbance(h5_path, annual_disturbance_folder, disturbance_year="2020"):
     """Tile-Based Architecture.
-    Processes static SCANFI fuel data from the PREVIOUS year (T-1) using pre-projected 90m TIFs.
+    Processes static DISRTURBANCE fuel data from the PREVIOUS year using pre-projected 90m TIFs.
 
     Args:
       h5_path: the file of the fire's H5 file
-      scanfi_folder: the folder containing the scanfi TIFs
-      current_year: the year of the scanfi maps
-
-    Returns:
-
+      annual_disturbance_folder: the folder containing the annual disturbance TIFs
+      disturbance_year: the year of the DISTURBANCE maps
     """
     h5_path = Path(h5_path)
     if not h5_path.exists():
         print(f"Error: {h5_path} does not exist.")
         return
     
-    year_folder = Path(scanfi_folder) / current_year
+    annual_disturbance_folder = Path(annual_disturbance_folder)
     
     print(f"\n{'='*60}")
-    print(f"Loading pre-fire SCANFI fuel data from {current_year}...")
-
-    if not year_folder.exists():
-        print(f"CRITICAL ERROR: SCANFI folder for {current_year} not found at {year_folder}")
+    print(f"Loading pre-fire DISTURBANCE fuel data from {disturbance_year}...")
+    
+    if not annual_disturbance_folder.exists():
+        print(f"CRITICAL ERROR: ANNUAL DISTURBANCE folder for {disturbance_year} not found at {annual_disturbance_folder}")
         return
 
     with h5py.File(h5_path, "a") as f:
@@ -94,15 +73,18 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
             print("No tiles found in this H5 file. Skipping.")
             return
 
-        for key, file_prefix in SCANFI_VARS.items():
+        for key, file_prefix in DISTURBANCE_VARS.items():
             var_name = key.lower()
             
             # Find the 90m TIF
-            all_files = list(year_folder.glob(f"*{file_prefix}*_90m.tif"))
+
+            # Example of file name : canlad_annual_2016_v1_90m.tif
+            all_files = list(annual_disturbance_folder.glob(f"{file_prefix}_{disturbance_year}_v1_90m.tif"))
+            
             matching_files = all_files
             
             if not matching_files:
-                print(f"Skipping {var_name}: No valid 90m TIF found for '{file_prefix}' in {year_folder}.")
+                print(f"Skipping {var_name}: No valid 90m TIF found for '{file_prefix}'.")
                 continue
             
             tif_path = matching_files[0]
@@ -120,10 +102,10 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
                 northing_grid = tile_grp['coords/theoretical_northing'][:] 
 
                 # Extract the 2D array
-                grid_data = extract_scanfi_for_grid(tif_path, easting_grid, northing_grid)
-                
-                # Safecty check: Convert to float32
-                grid_data = grid_data.astype(np.float32)
+                grid_data = extract_annual_disturbance_for_grid(tif_path, easting_grid, northing_grid)
+
+                # Group all Defoliation Severities (7 and 8) into Class 6
+                grid_data = np.where((grid_data == 7) | (grid_data == 8), 6, grid_data)
 
                 # Save to HDF5
                 if var_name in static_grp:
@@ -131,4 +113,4 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
                 
                 static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
 
-    print(f"Successfully processed all SCANFI tiles for {h5_path.name}")
+    print(f"Successfully processed all DISTURBANCE tiles for {h5_path.name}")

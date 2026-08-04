@@ -19,7 +19,14 @@ BANDS_FEATURES = [
         's2_b12'
     ]
 DYNAMIC_FEATURES = ['tmax', 'rh', 'ws', 'prec', 'evi', 'ndvi', 'u10', 'v10'] + BANDS_FEATURES
-STATIC_FEATURES = ['dem', 'slope', 'aspect', 'biomass', 'closure', 'prcc', 'prcb']
+STATIC_FEATURES = ['dem', 'slope', 'aspect', 
+                   'biomass', 'closure', 'prcb', 'prcc', 
+                   'height',
+                   'prc_balsam_fir', 'prc_black_spruce', 'prc_douglas_fir', 'prc_jack_pine',
+                   'prc_lodgepole_pine', 'prc_ponderosa_pine', 
+                   'prc_tamarack', 'prc_white_red_pine']
+
+LANDCOVER_BASE_YEARS = ['2015', '2020']
 
 
 # ==========================================
@@ -49,3 +56,4 @@ SENTINEL_WORKERS = 8
 SENTINEL_CLOUD_COVERAGE_THRESHOLDS = [40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
 # Bands
 SENTINEL_BANDS = ['B02', 'B03', 'B04', 'B08', 'B11', 'B12']
+SENTINEL_VISUAL = ['visual']

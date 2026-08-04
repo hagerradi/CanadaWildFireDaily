@@ -1,32 +1,13 @@
 from pathlib import Path
-import numpy as np
 import rioxarray
 import xarray as xr
 import h5py
 
-SCANFI_VARS = {
-    # Original Variables
-    'Biomass': 'SCANFI_att_biomass',
-    'Closure': 'SCANFI_att_closure',
-    'prcC': 'SCANFI_spsCC_otherConiferous',
-    'prcB': 'SCANFI_spsCC_broadleaf',
-    
-    # New Continuous Variables
-    'age': 'SCANFI_age_median',
-    'height': 'SCANFI_att_height',
-    
-    # New Species Crown Closures
-    'prc_balsam_fir': 'SCANFI_spsCC_balsamFir',
-    'prc_black_spruce': 'SCANFI_spsCC_blackSpruce',
-    'prc_douglas_fir': 'SCANFI_spsCC_douglasFir',
-    'prc_jack_pine': 'SCANFI_spsCC_jackPine',
-    'prc_lodgepole_pine': 'SCANFI_spsCC_lodgepolePine',
-    'prc_ponderosa_pine': 'SCANFI_spsCC_ponderosaPine',
-    'prc_tamarack': 'SCANFI_spsCC_tamarack',
-    'prc_white_red_pine': 'SCANFI_spsCC_whiteRedPine'
+LANDCOVER_VARS = {
+    'ccrs_landcover': 'landcover'
 }
 
-def extract_scanfi_for_grid(tif_path, easting_grid, northing_grid):
+def extract_landcover_for_grid(tif_path, easting_grid, northing_grid):
     """Extracts 2D grid data from a 90m TIFF file directly.
     NO TRANSFORMATION APPLIED. Assumes grids and TIF share the exact same CRS.
 
@@ -61,30 +42,27 @@ def extract_scanfi_for_grid(tif_path, easting_grid, northing_grid):
         return sampled.values
     
 
-def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
+def run_single_fire_landcover(h5_path, landcover_folder, current_year="2020"):
     """Tile-Based Architecture.
-    Processes static SCANFI fuel data from the PREVIOUS year (T-1) using pre-projected 90m TIFs.
+    Processes static LANDCOVER fuel data from the PREVIOUS year using pre-projected 90m TIFs.
 
     Args:
       h5_path: the file of the fire's H5 file
-      scanfi_folder: the folder containing the scanfi TIFs
-      current_year: the year of the scanfi maps
-
-    Returns:
-
+      landcover_folder: the folder containing the landcover TIFs
+      current_year: the year of the LANDCOVER maps
     """
     h5_path = Path(h5_path)
     if not h5_path.exists():
         print(f"Error: {h5_path} does not exist.")
         return
     
-    year_folder = Path(scanfi_folder) / current_year
+    landcover_folder = Path(landcover_folder)
     
     print(f"\n{'='*60}")
-    print(f"Loading pre-fire SCANFI fuel data from {current_year}...")
+    print(f"Loading pre-fire LANDCOVER fuel data from {current_year}...")
 
-    if not year_folder.exists():
-        print(f"CRITICAL ERROR: SCANFI folder for {current_year} not found at {year_folder}")
+    if not landcover_folder.exists():
+        print(f"CRITICAL ERROR: LANDCOVER folder for {current_year} not found at {landcover_folder}")
         return
 
     with h5py.File(h5_path, "a") as f:
@@ -94,15 +72,16 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
             print("No tiles found in this H5 file. Skipping.")
             return
 
-        for key, file_prefix in SCANFI_VARS.items():
+        for key, file_prefix in LANDCOVER_VARS.items():
             var_name = key.lower()
             
             # Find the 90m TIF
-            all_files = list(year_folder.glob(f"*{file_prefix}*_90m.tif"))
+            # Example of file name : landcover-2015-classification_90m.tif
+            all_files = list(landcover_folder.glob(f"{file_prefix}-{current_year}-classification_90m.tif"))
             matching_files = all_files
             
             if not matching_files:
-                print(f"Skipping {var_name}: No valid 90m TIF found for '{file_prefix}' in {year_folder}.")
+                print(f"Skipping {var_name}: No valid 90m TIF found for '{file_prefix}' in {landcover_folder}.")
                 continue
             
             tif_path = matching_files[0]
@@ -120,10 +99,7 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
                 northing_grid = tile_grp['coords/theoretical_northing'][:] 
 
                 # Extract the 2D array
-                grid_data = extract_scanfi_for_grid(tif_path, easting_grid, northing_grid)
-                
-                # Safecty check: Convert to float32
-                grid_data = grid_data.astype(np.float32)
+                grid_data = extract_landcover_for_grid(tif_path, easting_grid, northing_grid)
 
                 # Save to HDF5
                 if var_name in static_grp:
@@ -131,4 +107,4 @@ def run_single_fire_scanfi(h5_path, scanfi_folder, current_year="2020"):
                 
                 static_grp.create_dataset(var_name, data=grid_data, compression="lzf")
 
-    print(f"Successfully processed all SCANFI tiles for {h5_path.name}")
+    print(f"Successfully processed all LANDCOVER tiles for {h5_path.name}")

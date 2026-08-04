@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 
 from configs import settings
-from data_preparation.data_configs.data_settings import BANDS_FEATURES, DYNAMIC_FEATURES, STATIC_FEATURES
+from data_preparation.data_configs.data_settings import DYNAMIC_FEATURES, STATIC_FEATURES
 
 def apply_quality_masks(h5_folder, dynamic_feats, static_feats):
     """Creates a binary quality mask (1 = NaN/Inf, 0 = Clean) per day, per tile.
