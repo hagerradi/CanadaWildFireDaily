@@ -82,6 +82,10 @@ Make sure to organize the downloaded files according to the directories defined 
 
 **3. H5 Files:** Place these in your `H5_OUTPUT_FOLDER`.
 
+> **⚙️ Customizing Sample Generation:**
+> The default variables for feature selection (dynamic/static variables), target years, and the time-series sequence length (default is 3) are pre-configured. If you need to modify any of these before generating your data, edit the settings file located at:
+> `samples_generation/samples_configs/samples_settings.py`
+
 This step handles the **Train/Validation/Test splitting** using the CSV fire growth data. It uses the tile mappers to guarantee that geographically overlapping fires are kept strictly within the same fold, ensuring zero spatial data leakage between your training and testing sets.
 
 To generate the dataset, run the following command from the root of your project:
@@ -122,7 +126,7 @@ To switch between architectures (which will automatically configure the correspo
 
 1. **Standard UNet** (`architecture: 'unet'`): 
    The baseline spatial U-Net model.
-2. **Age-Encoding UNet** (`architecture: 'unet_age'`): 
+2. **U-Net with time-gap encoding** (`architecture: 'unet_time_gap'`): 
    A U-Net that explicitly encodes the satellite age (the time gap in days between the fire event and the satellite acquisition).
 3. **Spatiotemporal UNet** (`architecture: 'unet_convlstm'`): 
    A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
@@ -153,7 +157,30 @@ At the end of the `train` loop, `main.py` automatically looks for the `best_chec
 
 If found, it initiates the `test()` protocol on the holdout test split. This step computes the final metrics. Furthermore, it uploads high-resolution visual predictions (Previous Fire Mask, Ground Truth, Model Prediction) to CometML for your final visual analysis.
 
-### 4.5 Logistic Regression Baseline
+### 4.5 Global Evaluation (Optional)
+You can run a global evaluation to test all your models at once. This script evaluates every model across its multiple runs and outputs a consolidated CSV file containing all the grouped metrics.
+
+Run the following command from your project root:
+```bash
+cd /path/to/your/PROJECT_FOLDER/
+python -m src.evaluate --config configs/default.yaml
+
+```
+
+> **⚠️ Important: Directory Structure** > For the script to locate your weights, the files must be named `best_checkpoint.pt` and organized in directories following the `checkpoints_<modelName>_run<N>` naming convention.
+> For example, a UNet evaluated across three runs should look like this:
+> ```text
+> 📁 PROJECT_FOLDER/
+>  ├── 📁 checkpoints_unet_run1/
+>  │    └── 📄 best_checkpoint.pt
+>  ├── 📁 checkpoints_unet_run2/
+>  │    └── 📄 best_checkpoint.pt
+>  └── 📁 checkpoints_unet_run3/
+>       └── 📄 best_checkpoint.pt
+> 
+> ```
+
+### 4.6 Logistic Regression Baseline
 
 This repository also includes an additive classical logistic-regression baseline. It is separate from the PyTorch trainer, reads the precomputed simple samples from `SAMPLE_FOLDER/{train,val,test}`, ignores `delta_t`, extracts a configurable spatial patch around each pixel, and trains `sklearn.linear_model.SGDClassifier(loss="log_loss")`.
 
