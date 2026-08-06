@@ -7,20 +7,28 @@ from torch import nn
 from torch.nn import functional as F
 from typing import Union, Type, List, Tuple
 
-from dynamic_network_architectures.building_blocks.helper import get_matching_convtransp
-
 from torch.nn.modules.conv import _ConvNd
 from torch.nn.modules.dropout import _DropoutNd
 from dynamic_network_architectures.building_blocks.helper import convert_conv_op_to_dim
 
-# from nnunetv2.utilities.plans_handling.plans_handler import ConfigurationManager, PlansManager
-from dynamic_network_architectures.building_blocks.helper import get_matching_instancenorm, convert_dim_to_conv_op
-from dynamic_network_architectures.initialization.weight_init import init_last_bn_before_add_to_0
-# from nnunetv2.utilities.network_initialization import InitWeights_He
-from mamba_ssm import Mamba
+# from mamba_ssm import Mamba
 from dynamic_network_architectures.building_blocks.helper import maybe_convert_scalar_to_list, get_matching_pool_op
 from torch.cuda.amp import autocast
 from dynamic_network_architectures.building_blocks.residual import BasicBlockD
+
+# Safe handling for Mamba import
+try:
+    from mamba_ssm import Mamba
+    MAMBA_AVAILABLE = True
+except ImportError:
+    MAMBA_AVAILABLE = False
+    class Mamba(nn.Module):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            raise ImportError(
+                "mamba_ssm is not installed in the current environment. "
+                "Please install 'mamba-ssm' to use Mamba layers."
+            )
 
 class UpsampleLayer(nn.Module):
     def __init__(
