@@ -44,13 +44,15 @@ This is the final data preparation step before model training. At this stage, yo
 
 ### Option 1: Use Pre-compiled Samples (Recommended)
 If you want to skip the data generation process and jump straight to training, you can use our finalized samples.
-Samples can be downloaded from [here](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily-v1/tree/main/data_samples)
-Place them inside the `SAMPLES` folder defined in your `settings.py`, following this exact structure:
+Mono- and multi-temporal samples can be downloaded from [here](https://huggingface.co/datasets/CanadaWildFireDaily/CanadaWildFireDaily/tree/main)
+Place them inside the `SAMPLE_FOLDER_ADVANCED` (or `TIMESERIES_SAMPLE_FOLDER_ADVANCED`) defined in your `settings.py`, following this exact structure:
 ```text
 SAMPLES/
    ├── train/
    ├── val/
-   └── test/
+   ├── test_easy/
+   ├── test_medium/
+   └── test_hard/
 ```
 
 ### Option 2: Generate Samples from Scratch
@@ -67,7 +69,10 @@ Make sure to organize the downloaded files according to the directories defined 
     ├── Firegrowth_pts_v1_1_2023/Firegrowth_pts_v1_1_2023.csv
     ├── Firegrowth_pts_v1_1_2022/Firegrowth_pts_v1_1_2022.csv
     ├── Firegrowth_pts_v1_1_2021/Firegrowth_pts_v1_1_2021.csv
-    └── Firegrowth_pts_v1_1_2020/Firegrowth_pts_v1_1_2020.csv
+    ├── Firegrowth_pts_v1_1_2020/Firegrowth_pts_v1_1_2020.csv
+    ├── Firegrowth_pts_v1_1_2019/Firegrowth_pts_v1_1_2019.csv
+    ├── Firegrowth_pts_v1_1_2018/Firegrowth_pts_v1_1_2018.csv
+    └── Firegrowth_pts_v1_1_2017/Firegrowth_pts_v1_1_2017.csv
 ```
 
 **2. JSON Mappers:** Place these in your `METADATA_FOLDER`.
@@ -77,7 +82,10 @@ Make sure to organize the downloaded files according to the directories defined 
     ├── tile_dob_mapper_2023.json
     ├── tile_dob_mapper_2022.json
     ├── tile_dob_mapper_2021.json
-    └── tile_dob_mapper_2020.json
+    ├── tile_dob_mapper_2020.json
+    ├── tile_dob_mapper_2019.json
+    ├── tile_dob_mapper_2018.json
+    └── tile_dob_mapper_2017.json
 ```
 
 **3. H5 Files:** Place these in your `H5_OUTPUT_FOLDER`.
