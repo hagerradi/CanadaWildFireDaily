@@ -1,3 +1,4 @@
+import h5py
 import odc.stac
 import planetary_computer
 import pystac_client
@@ -7,7 +8,6 @@ from datetime import datetime, timedelta
 from tqdm import tqdm
 import dask
 from dask.diagnostics import ProgressBar
-import h5py
 import json
 import planetary_computer
 from odc.geo.geobox import GeoBox
@@ -229,7 +229,12 @@ def process_tile_h5_from_cube(h5_path, tile_id, cube, metadata, bands):
                     idx_first_valid = np.argmax(mask, axis=0) 
                     
                     rows, cols = np.indices(daily_stack.shape[2:])
-                    final_mosaic = np.zeros(daily_stack.shape[1:], dtype=daily_stack.dtype)
+                    # final_mosaic = np.zeros(daily_stack.shape[1:], dtype=daily_stack.dtype)
+                    final_mosaic = np.full(
+                        daily_stack.shape[1:],
+                        np.nan,
+                        dtype=daily_stack.dtype
+                    )
                     for b in range(daily_stack.shape[1]):
                         final_mosaic[b] = daily_stack[idx_first_valid[b], b, rows, cols]
 
