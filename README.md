@@ -153,6 +153,12 @@ To switch between architectures (which will automatically configure the correspo
    A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
 2. **UTAE** (`architecture: 'utae'`):
    A temporal attention encoder-decoder baseline adapted from the ICCV 2021 U-TAE model for satellite image time series. This baseline uses the time-series offline samples from `Timeseries_Samples/`, and the generator now stores sequence positions for the temporal attention encoder when you regenerate those samples.
+3. **Simpler yet better video prediction (SimVPv2)** (`architecture: 'simvpv2_spatiotemporal'`): 
+   Originally designed for video prediction, SimVPv2 (Tan et al., 2025) is utilized here as a purely convolutional baseline for spatio-temporal spread forecasting.
+4. **Video Swin-U-Net** (`architecture: 'video_swin_unet'`): 
+   Extended Swin-U-Net by incorporating 3D Video Swin Transformers blocks (Srivastava et al., 2026) to capture joint spatial and temporal dynamics across 3-day sequences.
+5. **A Multi-Modal Architecture** (`architecture: 'frp'`): 
+   A CNN-based multibranch architecture inspired by (Dong et al., 2024), with separate branches for daily weather variables, fire progression sequences, and static features such topography and land cover, followed by late fusion.
 
 #### References
    Li, B. S., & Rad, R. (2024, June). Wildfire spread prediction in North America using satellite imagery and vision transformer. In *2024 IEEE Conference on Artificial Intelligence (CAI)* (pp. 1536–1541). IEEE.
@@ -162,6 +168,12 @@ To switch between architectures (which will automatically configure the correspo
    Herzog, H., Bastani, F., Zhang, Y., Tseng, G., Redmon, J., Sablon, H., ... & Beukema, P. (2026). Olmoearth: Stable latent image modeling for multimodal earth observation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (pp. 34806-34817).
 
    Siméoni, O., Vo, H. V., Seitzer, M., Baldassarre, F., Oquab, M., Jose, C., ... & Bojanowski, P. (2025). Dinov3. arXiv preprint arXiv:2508.10104.
+
+   Tan, C., Gao, Z., Li, S., & Li, S. Z. (2025). SimVPv2: Towards simple yet powerful spatiotemporal predictive learning. IEEE Transactions on Multimedia, 27, 5170-5184.
+
+   Srivastava, M., Saha, E., & Wang, H. (2026). Spatio-Temporal Wildfire Spread Prediction in Canada using a Video Swin-Hybrid-U-Net and Satellite Imagery. arXiv preprint arXiv:2606.20693.
+
+   Dong, Z., Zhao, F., Wang, G., Tian, Y., & Li, H. (2024). A deep learning framework: Predicting fire radiative power from the combination of polar-orbiting and geostationary satellite data during wildfire spread. IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing, 17, 10827-10841.
 
 ### 4.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
