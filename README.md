@@ -113,7 +113,7 @@ python -m samples_generation.data_generator_main --config configs/default.yaml -
 
 **Key Execution Notes:**
 * **Dataset Normalization:** During generation, the script automatically calculates the global mean and standard deviation for all features across the training split and saves a `.json` file. This ensures the validation and test sets are normalized exclusively using training statistics.
-* **Output Location:** The script saves each generated sample as an individual PyTorch (`.pt`) file inside designated split subfolders (e.g., `train`, `val`, `test`) within either your `SAMPLE_FOLDER` or `TIMESERIES_SAMPLE_FOLDER`. Each file contains a dictionary with the following:
+* **Output Location:** The script saves each generated sample as a numpy (`.npz`) file inside designated split subfolders (e.g., `train`, `val`, `test_easy`, `test_medium`, `test_hard`) within either your `SAMPLE_FOLDER` or `TIMESERIES_SAMPLE_FOLDER`. Each file contains a dictionary with the following:
   * `x`: The input features.
   * `y`: The ground truth target mask.
   * `delta_t`: The satellite image age in days (included for `simple` samples only).
@@ -132,18 +132,26 @@ Multiple model architectures are implemented in the `src/models/` directory to h
 
 To switch between architectures (which will automatically configure the corresponding dataloaders, such as swapping from single-day static prediction to a 3-day sliding window), open your `configs/default.yaml` and update the `architecture` parameter under the `model` section to one of the following options:
 
-1. **Standard UNet** (`architecture: 'unet'`): 
+#### Mono-Temporal Models:
+1. **Standard UNet** (`architecture: 'unet'`):
    The baseline spatial U-Net model.
 2. **U-Net with time-gap encoding** (`architecture: 'unet_time_gap'`): 
    A U-Net that explicitly encodes the satellite age (the time gap in days between the fire event and the satellite acquisition).
-3. **Spatiotemporal UNet** (`architecture: 'unet_convlstm'`): 
-   A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
-4. **Attention UNet** (`architecture: 'unet_attention'`): 
+3. **Attention UNet** (`architecture: 'unet_attention'`): 
    A U-Net utilizing attention gates in the skip connections to help the model focus on the most critical spatial features and suppress irrelevant background noise.
-5. **UNet-SegFormer** (`architecture: 'unet_segformer'`): 
+4. **UNet-SegFormer** (`architecture: 'unet_segformer'`): 
    A hybrid vision-transformer architecture that replaces the standard CNN encoder with SegFormer's Mix Vision Transformer (MiT), paired with a standard U-Net decoder for heavy pixel-level accuracy. 
-6. **UT-AE** (`architecture: 'utae'`):
+5. **Swin-U-Net** (`architecture: 'asufm'`): 
+   We incorporate Swin-U-Net, a U-shaped   encoder-decoder architecture with skip connection, where convolutional blocks are replaced with Swin Transformers blocks (Li & Rad, 2024).
+
+#### Multi-Temporal Models:
+1. **Spatiotemporal UNet** (`architecture: 'unet_convlstm'`): 
+   A U-Net featuring a **ConvLSTM** bottleneck for recurrent time-series processing (e.g., 3-day sliding window forecasting).
+2. **UTAE** (`architecture: 'utae'`):
    A temporal attention encoder-decoder baseline adapted from the ICCV 2021 U-TAE model for satellite image time series. This baseline uses the time-series offline samples from `Timeseries_Samples/`, and the generator now stores sequence positions for the temporal attention encoder when you regenerate those samples.
+
+#### References
+   Li, B. S., & Rad, R. (2024, June). Wildfire spread prediction in North America using satellite imagery and vision transformer. In *2024 IEEE Conference on Artificial Intelligence (CAI)* (pp. 1536–1541). IEEE.
 
 ### 4.3 Training the Model
 The main entry point for the training pipeline is `main.py`, located at the root of the project. 
